@@ -1,18 +1,26 @@
 name: Build QwenPaw FNOS
 
 on:
+  schedule:
+    - cron: '0 0 * * 5' # 每周五 00:00 UTC (北京时间 08:00) 自动检查更新
   workflow_dispatch:
+    inputs:
+      force:
+        description: '是否强制重新构建打包'
+        required: false
+        default: false
+        type: boolean
 
 env:
   TZ: Asia/Shanghai
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
+    outputs:
+      need_update: ${{ steps.check_update.outputs.need_update }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -27,10 +35,43 @@ jobs:
           echo "version=$LATEST" >> $GITHUB_OUTPUT
           echo "Latest QwenPaw version: $LATEST"
 
+      - name: Check if update needed
+        id: check_update
+        run: |
+          # 提取当前版本
+          CURRENT_VERSION=$(grep -o "更新 QwenPaw 到 v.* 版本" manifest | sed 's/更新 QwenPaw 到 v//; s/ 版本//' || echo "")
+          LATEST_VERSION="${{ steps.version.outputs.version }}"
+          echo "Current packaged QwenPaw version: $CURRENT_VERSION"
+          echo "Latest official QwenPaw version: $LATEST_VERSION"
+          
+          FORCE_BUILD="${{ github.event.inputs.force }}"
+          echo "Force build flag: $FORCE_BUILD"
+          
+          if [ "$FORCE_BUILD" = "true" ] || [ "$CURRENT_VERSION" != "$LATEST_VERSION" ]; then
+            echo "need_update=true" >> $GITHUB_OUTPUT
+            echo "Decision: Update required."
+          else
+            echo "need_update=false" >> $GITHUB_OUTPUT
+            echo "Decision: No update needed."
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.need_update == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
       - name: Download official QwenPaw
         run: |
           mkdir -p temp
-          wget "https://github.com/agentscope-ai/QwenPaw/archive/refs/tags/v${{ steps.version.outputs.version }}.zip" -O temp/QwenPaw.zip
+          wget "https://github.com/agentscope-ai/QwenPaw/archive/refs/tags/v${{ needs.check.outputs.version }}.zip" -O temp/QwenPaw.zip
           unzip temp/QwenPaw.zip -d temp
 
       - name: Setup Node.js
@@ -66,7 +107,7 @@ jobs:
         id: manifest
         run: |
           VERSION=$(date +%y.%-m.%-d)
-          CHANGELOG="更新 QwenPaw 到 v${{ steps.version.outputs.version }} 版本"
+          CHANGELOG="更新 QwenPaw 到 v${{ needs.check.outputs.version }} 版本"
           sed -i "s/^version\s*=.*/version               = ${VERSION}/" manifest
           sed -i "s|^changelog\s*=.*|changelog             = ${CHANGELOG}|" manifest
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
@@ -89,7 +130,7 @@ jobs:
       - name: Upload fpk artifact
         uses: actions/upload-artifact@v4
         with:
-          name: QwenPaw-${{ steps.version.outputs.version }}
+          name: QwenPaw-${{ needs.check.outputs.version }}
           path: ${{ steps.build.outputs.fpk_file }}
           retention-days: 30
 
@@ -98,7 +139,7 @@ jobs:
         with:
           tag_name: v${{ steps.manifest.outputs.version }}
           name: v${{ steps.manifest.outputs.version }}
-          body: "更新 QwenPaw 到 v${{ steps.version.outputs.version }} 版本"
+          body: "更新 QwenPaw 到 v${{ needs.check.outputs.version }} 版本"
           files: |
             ${{ steps.build.outputs.fpk_file }}
           draft: false
@@ -110,7 +151,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
           git add app/server/ manifest
-          git commit -m "更新 QwenPaw 到 v${{ steps.version.outputs.version }} 版本" || exit 0
+          git commit -m "更新 QwenPaw 到 v${{ needs.check.outputs.version }} 版本" || exit 0
           git push
 
       - name: Push to FnDepot
@@ -121,7 +162,7 @@ jobs:
           cd temp_fndepot
           
           VERSION="${{ steps.manifest.outputs.version }}"
-          QWENPAW_VERSION="${{ steps.version.outputs.version }}"
+          QWENPAW_VERSION="${{ needs.check.outputs.version }}"
           DOWNLOAD_URL="https://github.com/yuexps/QwenPaw-FNOS/releases/download/v${VERSION}/qwenpaw_yuexps.fpk"
           CHANGELOG="更新 QwenPaw 到 v${QWENPAW_VERSION} 版本"
           
