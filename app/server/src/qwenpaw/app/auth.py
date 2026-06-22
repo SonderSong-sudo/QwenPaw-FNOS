@@ -29,7 +29,6 @@ from typing import Optional
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import backup_endpoint_policy
 from ..constant import SECRET_DIR, EnvVarLoader
 from ..security.secret_store import (
     AUTH_SECRET_FIELDS,
@@ -56,6 +55,7 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/register",
         "/api/version",
         "/api/settings/language",
+        "/api/settings/upload-limit",
         "/api/frontend_plugin",
     },
 )
@@ -568,6 +568,37 @@ def revoke_all_tokens() -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_client_ip(request: Request) -> str:
+    """Return the real client IP, respecting reverse-proxy headers."""
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip", "")
+    if real_ip:
+        return real_ip.strip()
+    return request.client.host if request.client else ""
+
+
+# Cached config for hot-path auth checks (avoids disk read per request)
+_auth_config_cache: tuple = (0, None)  # (mtime_ns, config)
+
+
+def _get_config_cached():
+    """Return config with mtime-based cache (stat is ~1us vs read ~1ms)."""
+    global _auth_config_cache  # noqa: PLW0603
+    from ..config import load_config
+    from ..config.utils import get_config_path
+
+    config_path = get_config_path()
+    try:
+        mtime_ns = config_path.stat().st_mtime_ns
+    except OSError:
+        mtime_ns = 0
+    if mtime_ns != _auth_config_cache[0] or _auth_config_cache[1] is None:
+        _auth_config_cache = (mtime_ns, load_config())
+    return _auth_config_cache[1]
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware that checks Bearer token on protected routes."""
 
@@ -577,13 +608,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         call_next,
     ) -> Response:
         """Check Bearer token on protected API routes; skip public paths."""
-        skip_auth = self._should_skip_auth(request)
-        decision = backup_endpoint_policy.apply(request, skip_auth=skip_auth)
-        if isinstance(decision, Response):
-            return decision
-        skip_auth = decision
-
-        if skip_auth:
+        if self._should_skip_auth(request):
             return await call_next(request)
 
         token = self._extract_token(request)
@@ -628,10 +653,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return True
 
         # Check if client host is in allow_no_auth_hosts whitelist
-        from ..config import load_config
-
-        client_host = request.client.host if request.client else ""
-        config = load_config()
+        client_host = _resolve_client_ip(request)
+        config = _get_config_cached()
         allowed_hosts = config.security.allow_no_auth_hosts
         return client_host in allowed_hosts
 

@@ -59,10 +59,11 @@ from ...agents.skill_system.store import (
     read_skill_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
+    resolve_pool_skill_dir,
     suggest_conflict_name,
 )
 from ...security.skill_scanner import SkillScanError
-from ..utils import schedule_agent_reload
+from ..utils import check_upload_size, schedule_agent_reload
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +122,13 @@ class SkillSpec(SkillInfo):
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
+    installed_from: str = ""
 
 
 class PoolSkillSpec(SkillInfo):
     protected: bool = False
+    external: bool = False
+    external_path: str = ""
     commit_text: str = ""
     sync_status: str = ""
     latest_version_text: str = ""
@@ -133,6 +137,7 @@ class PoolSkillSpec(SkillInfo):
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
+    installed_from: str = ""
 
 
 class WorkspaceSkillSummary(BaseModel):
@@ -148,6 +153,8 @@ class HubSkillSpec(BaseModel):
     description: str = ""
     version: str = ""
     source_url: str = ""
+    author: str = ""
+    icon_url: str = ""
 
 
 class BuiltinImportSpec(BaseModel):
@@ -282,7 +289,6 @@ _ALLOWED_ZIP_TYPES = {
     "application/x-zip-compressed",
     "application/octet-stream",
 }
-_MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
 def _workspace_dir_for_agent(agent_id: str) -> Path:
@@ -398,14 +404,7 @@ async def _read_validated_zip_upload(file: UploadFile) -> bytes:
         )
 
     data = await file.read()
-    if len(data) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"File too large ({len(data) // (1024 * 1024)} MB). "
-                f"Maximum is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
-            ),
-        )
+    check_upload_size(data)
     return data
 
 
@@ -434,17 +433,13 @@ async def _run_hub_install_task(
     await _hub_task_set_status(task_id, HubInstallTaskStatus.IMPORTING)
     imported_skill_name: str | None = None
     try:
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            None,
-            lambda: install_skill_from_hub(
-                workspace_dir=workspace_dir,
-                bundle_url=body.bundle_url,
-                version=body.version,
-                enable=body.enable,
-                target_name=body.target_name,
-                cancel_checker=cancel_event.is_set,
-            ),
+        result = await install_skill_from_hub(
+            workspace_dir=workspace_dir,
+            bundle_url=body.bundle_url,
+            version=body.version,
+            enable=body.enable,
+            target_name=body.target_name,
+            cancel_checker=cancel_event.is_set,
         )
         imported_skill_name = result.name
         if cancel_event.is_set():
@@ -457,6 +452,7 @@ async def _run_hub_install_task(
                     "name": result.name,
                     "enabled": False,
                     "source_url": result.source_url,
+                    "installed_from": result.installed_from,
                 },
             )
             return
@@ -468,6 +464,7 @@ async def _run_hub_install_task(
                 "name": result.name,
                 "enabled": result.enabled,
                 "source_url": result.source_url,
+                "installed_from": result.installed_from,
             },
         )
     except SkillImportCancelled:
@@ -537,6 +534,9 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     channels=entry.get("channels") or ["all"],
                     config=entry.get("config") or {},
                     last_updated=get_skill_mtime(skill_dir),
+                    installed_from=str(
+                        entry.get("installed_from", "") or "",
+                    ),
                 ),
             )
         except Exception:
@@ -563,17 +563,22 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
             )
         try:
             source = entry.get("source", "customized")
-            skill_dir = pool_dir / skill_name
+            skill_dir = resolve_pool_skill_dir(skill_name) or (
+                pool_dir / skill_name
+            )
             skill = read_skill_from_dir(skill_dir, source)
             if skill is None:
                 continue
             info = sync_info.get(skill_name, {})
             dump = skill.model_dump(exclude={"version_text"})
             dump["tags"] = entry.get("tags") or []
+            is_external = bool(entry.get("external", False))
             specs.append(
                 PoolSkillSpec(
                     **dump,
                     protected=bool(entry.get("protected", False)),
+                    external=is_external,
+                    external_path=str(skill_dir) if is_external else "",
                     version_text=str(entry.get("version_text", "") or ""),
                     commit_text=str(entry.get("commit_text", "") or ""),
                     sync_status=str(info.get("sync_status", "") or ""),
@@ -594,6 +599,9 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                     ],
                     config=entry.get("config") or {},
                     last_updated=get_skill_mtime(skill_dir),
+                    installed_from=str(
+                        entry.get("installed_from", "") or "",
+                    ),
                 ),
             )
         except Exception:
@@ -624,7 +632,7 @@ async def search_hub(
     q: str = "",
     limit: int = 20,
 ) -> list[HubSkillSpec]:
-    results = search_hub_skills(q, limit=limit)
+    results = await search_hub_skills(q, limit=limit)
     return [
         HubSkillSpec(
             slug=item.slug,
@@ -632,6 +640,8 @@ async def search_hub(
             description=item.description,
             version=item.version,
             source_url=item.source_url,
+            author=item.author,
+            icon_url=item.icon_url,
         )
         for item in results
     ]
@@ -933,7 +943,7 @@ async def import_skill_pool_from_hub(
     body: HubInstallRequest,
 ) -> dict[str, Any]:
     try:
-        result = import_pool_skill_from_hub(
+        result = await import_pool_skill_from_hub(
             bundle_url=body.bundle_url,
             version=body.version,
             target_name=body.target_name,
@@ -951,6 +961,7 @@ async def import_skill_pool_from_hub(
         "name": result.name,
         "enabled": False,
         "source_url": result.source_url,
+        "installed_from": result.installed_from,
     }
 
 
@@ -992,6 +1003,8 @@ def _preflight_download_conflicts(
             overwrite=overwrite,
         )
         if not result.get("success"):
+            if result.get("reason") == "not_found":
+                raise HTTPException(status_code=404, detail=result)
             conflicts.append(result)
     return conflicts
 
@@ -1057,6 +1070,40 @@ def _build_download_plan(
     return plan
 
 
+def _download_one_or_raise(
+    hub_service: SkillPoolService,
+    plan: dict[str, Any],
+    execution_plan: list[dict[str, Any]],
+    *,
+    skill_name: str,
+    overwrite: bool,
+) -> dict[str, str]:
+    """Download into one workspace; on failure roll back all and raise.
+
+    A missing pool skill is a target-independent 404; any other failure is
+    a per-target 409 conflict.
+    """
+    result = hub_service.download_to_workspace(
+        skill_name=skill_name,
+        workspace_dir=plan["workspace_dir"],
+        overwrite=overwrite,
+    )
+    if not result.get("success"):
+        for rollback in reversed(execution_plan):
+            _restore_workspace_skill(rollback["snapshot"])
+        if result.get("reason") == "not_found":
+            raise HTTPException(status_code=404, detail=result)
+        raise HTTPException(
+            status_code=409,
+            detail={"downloaded": [], "conflicts": [result]},
+        )
+    return {
+        "workspace_id": str(plan["workspace_id"]),
+        "workspace_name": str(result.get("workspace_name", "") or ""),
+        "name": str(result.get("name", "")),
+    }
+
+
 @router.post("/pool/download")
 async def download_pool_skill_to_workspaces(
     body: DownloadFromPoolRequest,
@@ -1074,29 +1121,14 @@ async def download_pool_skill_to_workspaces(
     downloaded: list[dict[str, str]] = []
     try:
         for plan in execution_plan:
-            result = hub_service.download_to_workspace(
-                skill_name=body.skill_name,
-                workspace_dir=plan["workspace_dir"],
-                overwrite=body.overwrite,
-            )
-            if not result.get("success"):
-                for rollback in reversed(execution_plan):
-                    _restore_workspace_skill(rollback["snapshot"])
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "downloaded": [],
-                        "conflicts": [result],
-                    },
-                )
             downloaded.append(
-                {
-                    "workspace_id": str(plan["workspace_id"]),
-                    "workspace_name": str(
-                        result.get("workspace_name", "") or "",
-                    ),
-                    "name": str(result.get("name", "")),
-                },
+                _download_one_or_raise(
+                    hub_service,
+                    plan,
+                    execution_plan,
+                    skill_name=body.skill_name,
+                    overwrite=body.overwrite,
+                ),
             )
     except HTTPException:
         raise
