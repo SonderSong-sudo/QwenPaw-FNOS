@@ -2,7 +2,7 @@ name: Build QwenPaw FNOS
 
 on:
   schedule:
-    - cron: '0 0 * * 5' # 每周五 00:00 UTC (北京时间 08:00) 自动检查更新
+    - cron: '0 16 */3 * *' # 每三天 Asia/Shanghai 00:00 自动检查更新
   workflow_dispatch:
     inputs:
       force:
