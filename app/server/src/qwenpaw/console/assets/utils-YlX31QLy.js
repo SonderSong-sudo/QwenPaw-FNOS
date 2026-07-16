@@ -1,0 +1,1 @@
+import{d as t}from"./utils-vendor-BcdFrGdH.js";import"./react-vendor-Dc5dhXQW.js";import"./ui-vendor-Is6G0tdy.js";import"./markdown-vendor-elH94dlU.js";const s=r=>{const o=typeof r=="string"?new Date(r).getTime():r;return isNaN(o)?"-":t(o).fromNow()},d=r=>/^\d{4}-\d{2}-\d{2}\.md$/.test(r);export{s as formatTimeAgo,d as isDailyMemoryFile};
