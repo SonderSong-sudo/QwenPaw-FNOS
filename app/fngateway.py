@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-飞牛网关反向代理中间件
+飞牛网关反向代理中间件：https://github.com/yuexps/FnDepot/blob/main/fngateway.py
 监听 Unix Domain Socket 并代理至目标 TCP 端口，实现子路径路由剥除、请求/响应头重写及前端运行时环境适配。
 """
 
@@ -22,38 +22,43 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-    stream=sys.stdout
+    stream=sys.stdout,
 )
 logger = logging.getLogger("fngateway")
 
-HTML_ATTR_RE = re.compile(r'(?i)\b(src|href|action)\s*=\s*(["\'])(/[^"\']*)')
-MAX_HTML_INJECT_SIZE = 10 * 1024 * 1024
+HTML_ATTR_RE = re.compile(r'(?i)\b(src|href|action|poster)\s*=\s*(["\'])(/[^"\']*)')
+JS_ROUTE_RE = re.compile(
+    rb'function\s+([a-zA-Z0-9_$]+)\s*\(\s*([a-zA-Z0-9_$]+)\s*\)\s*\{\s*return\s*/\^\\/([a-zA-Z0-9_-]+)\(\?:\\/\|\$\)/\.test\(\s*\2\s*\)\s*\?\s*([a-zA-Z0-9_$]+)\s*:\s*(?:void 0|undefined)\s*\}'
+)
+CHUNK_SIZE = 64 * 1024
 
 
 def generate_bridge_script(prefix: str) -> str:
-    """生成前端运行时拦截与环境适配补丁脚本"""
+    """前端运行时拦截与路由适配脚本"""
     return f"""<script>
 (function (prefix) {{
-  if (typeof window === "undefined" || !window.location) return;
+  if (typeof window === "undefined" || !window.location || !prefix) return;
   if (window.location.pathname.indexOf(prefix) !== 0 && window.location.pathname !== prefix) return;
 
   var isAlreadyPrefixed = function (pathname) {{
-    return prefix !== "" && (pathname === prefix || pathname.indexOf(prefix + "/") === 0);
+    return pathname === prefix || pathname.indexOf(prefix + "/") === 0;
   }};
 
   var toGatewayUrl = function (value) {{
-    if (!value) return null;
+    if (!value) return value;
     var str = String(value).trim();
-    if (str.indexOf("blob:") === 0 || str.indexOf("data:") === 0 || str.indexOf("javascript:") === 0 || str.indexOf("about:") === 0) return null;
+    if (/^(blob:|data:|javascript:|about:|#)/i.test(str)) return value;
     var url;
-    try {{ url = new URL(str, window.location.href); }}
-    catch (_) {{ return null; }}
-    if (url.protocol !== "http:" && url.protocol !== "https:" && url.protocol !== "ws:" && url.protocol !== "wss:") return null;
-    if (url.origin !== window.location.origin) return null;
-    if (isAlreadyPrefixed(url.pathname)) return null;
+    try {{ url = new URL(str, window.location.href); }} catch (_) {{ return value; }}
+    if (url.origin !== window.location.origin) return value;
+    if (isAlreadyPrefixed(url.pathname)) return value;
     var rawPath = url.pathname.indexOf('/') === 0 ? url.pathname : '/' + url.pathname;
-    url.pathname = prefix + rawPath;
-    return url;
+    var newPath = prefix + rawPath;
+    if (str.indexOf('/') === 0 && str.indexOf('//') !== 0) {{
+      return newPath + (url.search || '') + (url.hash || '');
+    }}
+    url.pathname = newPath;
+    return url.toString();
   }};
 
   var toGatewaySrcset = function (srcsetStr) {{
@@ -63,14 +68,14 @@ def generate_bridge_script(prefix: str) -> str:
       if (!item) return item;
       var segs = item.split(/\\s+/);
       var mapped = toGatewayUrl(segs[0]);
-      if (mapped !== null) segs[0] = mapped.toString();
+      if (mapped) segs[0] = mapped;
       return segs.join(" ");
     }}).join(", ");
   }};
 
   var rewriteHtmlString = function (html) {{
     if (typeof html !== "string" || html.indexOf("/") === -1) return html;
-    var htmlAttrRe = new RegExp("\\\\b(src|href|action)=([\\"'])(/[^\\"']*)\\\\2", "gi");
+    var htmlAttrRe = new RegExp("\\\\b(src|href|action|poster)=([\\"'])(/[^\\"']*)\\\\2", "gi");
     return html.replace(htmlAttrRe, function (match, attr, quote, path) {{
       if (isAlreadyPrefixed(path) || path.indexOf("//") === 0) return match;
       return attr + "=" + quote + prefix + path + quote;
@@ -81,44 +86,98 @@ def generate_bridge_script(prefix: str) -> str:
     if (!targetWindow || targetWindow.__fnGatewayBridgeReady) return;
     targetWindow.__fnGatewayBridgeReady = true;
 
+    // 拦截 Location 原型（pathname、assign、replace）
+    if (targetWindow.Location && targetWindow.Location.prototype) {{
+      var locProto = targetWindow.Location.prototype;
+      var locPathDesc = Object.getOwnPropertyDescriptor(locProto, "pathname");
+      if (locPathDesc && locPathDesc.get && locPathDesc.configurable) {{
+        var nativeLocPathGet = locPathDesc.get;
+        var nativeLocPathSet = locPathDesc.set;
+        try {{
+          Object.defineProperty(locProto, "pathname", {{
+            get: function () {{
+              var p = nativeLocPathGet.call(this);
+              if (isAlreadyPrefixed(p)) {{
+                var stripped = p.slice(prefix.length);
+                return stripped.indexOf("/") === 0 ? stripped : "/" + stripped;
+              }}
+              return p;
+            }},
+            set: function (val) {{
+              if (nativeLocPathSet) {{
+                if (typeof val === "string" && val.indexOf("/") === 0 && !isAlreadyPrefixed(val)) {{
+                  val = prefix + val;
+                }}
+                return nativeLocPathSet.call(this, val);
+              }}
+            }},
+            configurable: true,
+            enumerable: true
+          }});
+        }} catch (_) {{}}
+      }}
+
+      if (locProto.assign) {{
+        var nativeAssign = locProto.assign;
+        locProto.assign = function (url) {{
+          return nativeAssign.call(this, toGatewayUrl(url) || url);
+        }};
+      }}
+      if (locProto.replace) {{
+        var nativeReplace = locProto.replace;
+        locProto.replace = function (url) {{
+          return nativeReplace.call(this, toGatewayUrl(url) || url);
+        }};
+      }}
+    }}
+
+    // 拦截 History API
+    if (targetWindow.history) {{
+      var wrapHistory = function (orig) {{
+        if (!orig) return orig;
+        return function (state, unused, url) {{
+          if (url) url = toGatewayUrl(url);
+          return orig.call(this, state, unused, url);
+        }};
+      }};
+      targetWindow.history.pushState = wrapHistory(targetWindow.history.pushState);
+      targetWindow.history.replaceState = wrapHistory(targetWindow.history.replaceState);
+    }}
+
     // 拦截 Fetch
     if (targetWindow.fetch) {{
       var nativeFetch = targetWindow.fetch.bind(targetWindow);
       targetWindow.fetch = function (input, init) {{
         if (typeof Request !== "undefined" && input instanceof Request) {{
           var mapped = toGatewayUrl(input.url);
-          if (mapped !== null) {{
-            try {{ input = new Request(mapped.toString(), input); }} catch (_) {{}}
+          if (mapped !== input.url) {{
+            try {{ input = new Request(mapped, input); }} catch (_) {{}}
           }}
         }} else {{
-          var mapped = toGatewayUrl(input);
-          if (mapped !== null) input = mapped.toString();
+          input = toGatewayUrl(input);
         }}
         return nativeFetch(input, init);
       }};
     }}
 
-    // 拦截 XHR
+    // 拦截 XMLHttpRequest
     if (targetWindow.XMLHttpRequest) {{
       var nativeXHROpen = targetWindow.XMLHttpRequest.prototype.open;
       targetWindow.XMLHttpRequest.prototype.open = function (method, url) {{
-        var mapped = toGatewayUrl(url);
-        if (mapped !== null) arguments[1] = mapped.toString();
+        arguments[1] = toGatewayUrl(url);
         return nativeXHROpen.apply(this, arguments);
       }};
     }}
 
-    // 拦截 DOM 属性
+    // 拦截 DOM 元素属性
     var hookProperty = function (proto, prop, isSrcset) {{
       if (!proto) return;
       var desc = Object.getOwnPropertyDescriptor(proto, prop);
-      if (!desc || !desc.set) return;
+      if (!desc || !desc.set || !desc.configurable) return;
       var nativeSet = desc.set;
       Object.defineProperty(proto, prop, {{
         set: function (val) {{
-          if (isSrcset) return nativeSet.call(this, toGatewaySrcset(val));
-          var mapped = toGatewayUrl(val);
-          return nativeSet.call(this, mapped !== null ? mapped.toString() : val);
+          return nativeSet.call(this, isSrcset ? toGatewaySrcset(val) : toGatewayUrl(val));
         }},
         get: desc.get,
         configurable: true,
@@ -134,7 +193,6 @@ def generate_bridge_script(prefix: str) -> str:
     if (targetWindow.HTMLAnchorElement) hookProperty(targetWindow.HTMLAnchorElement.prototype, "href", false);
     if (targetWindow.HTMLIFrameElement) hookProperty(targetWindow.HTMLIFrameElement.prototype, "src", false);
     if (targetWindow.HTMLScriptElement) hookProperty(targetWindow.HTMLScriptElement.prototype, "src", false);
-    if (targetWindow.HTMLFormElement) hookProperty(targetWindow.HTMLFormElement.prototype, "action", false);
     if (targetWindow.HTMLMediaElement) hookProperty(targetWindow.HTMLMediaElement.prototype, "src", false);
     if (targetWindow.HTMLSourceElement) {{
       hookProperty(targetWindow.HTMLSourceElement.prototype, "src", false);
@@ -147,8 +205,7 @@ def generate_bridge_script(prefix: str) -> str:
       targetWindow.Element.prototype.setAttribute = function (name, value) {{
         var n = String(name).toLowerCase();
         if (n === "src" || n === "href" || n === "action") {{
-          var mapped = toGatewayUrl(value);
-          if (mapped !== null) value = mapped.toString();
+          value = toGatewayUrl(value);
         }} else if (n === "srcset") {{
           value = toGatewaySrcset(value);
         }}
@@ -156,10 +213,12 @@ def generate_bridge_script(prefix: str) -> str:
       }};
 
       var innerDesc = Object.getOwnPropertyDescriptor(targetWindow.Element.prototype, "innerHTML");
-      if (innerDesc && innerDesc.set) {{
+      if (innerDesc && innerDesc.set && innerDesc.configurable) {{
         var nativeInnerSet = innerDesc.set;
         Object.defineProperty(targetWindow.Element.prototype, "innerHTML", {{
-          set: function (val) {{ return nativeInnerSet.call(this, rewriteHtmlString(val)); }},
+          set: function (val) {{
+            return nativeInnerSet.call(this, rewriteHtmlString(val));
+          }},
           get: innerDesc.get,
           configurable: true,
           enumerable: true
@@ -167,84 +226,31 @@ def generate_bridge_script(prefix: str) -> str:
       }}
     }}
 
-    // 拦截 <a> 点击
+    // 拦截超链接点击
     targetWindow.addEventListener("click", function (e) {{
       var target = e.target;
       while (target && target.tagName !== "A") target = target.parentElement;
       if (target && target.tagName === "A") {{
         var href = target.getAttribute("href") || target.href;
         var mapped = toGatewayUrl(href);
-        if (mapped !== null) {{
-          target.setAttribute("href", mapped.toString());
-          if (target.href) target.href = mapped.toString();
+        if (mapped) {{
+          target.setAttribute("href", mapped);
+          if (target.href) target.href = mapped;
         }}
       }}
     }}, true);
-
-    // 拦截 History
-    if (targetWindow.history) {{
-      var wrapHistory = function (orig) {{
-        if (!orig) return orig;
-        return function (state, unused, url) {{
-          if (url) {{
-            var mapped = toGatewayUrl(url);
-            if (mapped !== null) url = mapped.toString();
-          }}
-          return orig.call(this, state, unused, url);
-        }};
-      }};
-      targetWindow.history.pushState = wrapHistory(targetWindow.history.pushState);
-      targetWindow.history.replaceState = wrapHistory(targetWindow.history.replaceState);
-    }}
-
-    // 拦截 EventSource
-    if (targetWindow.EventSource) {{
-      var nativeEventSource = targetWindow.EventSource;
-      targetWindow.EventSource = new Proxy(nativeEventSource, {{
-        construct: function (target, args, newTarget) {{
-          var mapped = toGatewayUrl(args[0]);
-          if (mapped !== null) args = [mapped.toString()].concat(args.slice(1));
-          return Reflect.construct(target, args, newTarget);
-        }}
-      }});
-    }}
-
-    // 拦截 WebSocket
-    if (targetWindow.WebSocket) {{
-      var nativeWebSocket = targetWindow.WebSocket;
-      var page = new URL(targetWindow.location.href);
-      var pagePort = page.port || (page.protocol === "https:" ? "443" : "80");
-      targetWindow.WebSocket = new Proxy(nativeWebSocket, {{
-        construct: function (target, args, newTarget) {{
-          var url;
-          try {{ url = new URL(String(args[0]), targetWindow.location.href); }}
-          catch (_) {{ return Reflect.construct(target, args, newTarget); }}
-          var socketPort = url.port || (url.protocol === "wss:" ? "443" : "80");
-          if ((url.protocol === "ws:" || url.protocol === "wss:") &&
-              url.hostname === page.hostname && socketPort === pagePort &&
-              !isAlreadyPrefixed(url.pathname)) {{
-            var rawPath = url.pathname.indexOf('/') === 0 ? url.pathname : '/' + url.pathname;
-            url.pathname = prefix + rawPath;
-            args = [url.toString()].concat(args.slice(1));
-          }}
-          return Reflect.construct(target, args, newTarget);
-        }}
-      }});
-    }}
 
     // 拦截 window.open 与 sendBeacon
     if (typeof targetWindow.open === "function") {{
       var nativeOpen = targetWindow.open.bind(targetWindow);
       targetWindow.open = function (url, target, features) {{
-        var mapped = toGatewayUrl(url);
-        return nativeOpen(mapped !== null ? mapped.toString() : url, target, features);
+        return nativeOpen(toGatewayUrl(url), target, features);
       }};
     }}
     if (targetWindow.navigator && typeof targetWindow.navigator.sendBeacon === "function") {{
       var nativeBeacon = targetWindow.navigator.sendBeacon.bind(targetWindow.navigator);
       targetWindow.navigator.sendBeacon = function (url, data) {{
-        var mapped = toGatewayUrl(url);
-        return nativeBeacon(mapped !== null ? mapped.toString() : url, data);
+        return nativeBeacon(toGatewayUrl(url), data);
       }};
     }}
 
@@ -253,8 +259,7 @@ def generate_bridge_script(prefix: str) -> str:
       var nativeWorker = targetWindow.Worker;
       targetWindow.Worker = new Proxy(nativeWorker, {{
         construct: function (target, args, newTarget) {{
-          var mapped = toGatewayUrl(args[0]);
-          if (mapped !== null) args = [mapped.toString()].concat(args.slice(1));
+          args = [toGatewayUrl(args[0])].concat(args.slice(1));
           return Reflect.construct(target, args, newTarget);
         }}
       }});
@@ -263,8 +268,36 @@ def generate_bridge_script(prefix: str) -> str:
       var nativeSharedWorker = targetWindow.SharedWorker;
       targetWindow.SharedWorker = new Proxy(nativeSharedWorker, {{
         construct: function (target, args, newTarget) {{
-          var mapped = toGatewayUrl(args[0]);
-          if (mapped !== null) args = [mapped.toString()].concat(args.slice(1));
+          args = [toGatewayUrl(args[0])].concat(args.slice(1));
+          return Reflect.construct(target, args, newTarget);
+        }}
+      }});
+    }}
+
+    // 拦截 WebSocket
+    if (targetWindow.WebSocket) {{
+      var nativeWebSocket = targetWindow.WebSocket;
+      targetWindow.WebSocket = new Proxy(nativeWebSocket, {{
+        construct: function (target, args, newTarget) {{
+          try {{
+            var url = new URL(String(args[0]), targetWindow.location.href);
+            if ((url.protocol === "ws:" || url.protocol === "wss:") && !isAlreadyPrefixed(url.pathname)) {{
+              var rawPath = url.pathname.indexOf('/') === 0 ? url.pathname : '/' + url.pathname;
+              url.pathname = prefix + rawPath;
+              args = [url.toString()].concat(args.slice(1));
+            }}
+          }} catch (_) {{}}
+          return Reflect.construct(target, args, newTarget);
+        }}
+      }});
+    }}
+
+    // 拦截 EventSource
+    if (targetWindow.EventSource) {{
+      var nativeEventSource = targetWindow.EventSource;
+      targetWindow.EventSource = new Proxy(nativeEventSource, {{
+        construct: function (target, args, newTarget) {{
+          args = [toGatewayUrl(args[0])].concat(args.slice(1));
           return Reflect.construct(target, args, newTarget);
         }}
       }});
@@ -334,22 +367,6 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
     def do_PATCH(self): self.handle_proxy()
     def do_OPTIONS(self): self.handle_proxy()
 
-    def _send_direct(self, status: int, reason: str, headers: list[tuple[str, str]], body: bytes = b""):
-        """构建并发送响应数据"""
-        resp_lines = [f"HTTP/1.1 {status} {reason}"]
-        for k, v in headers:
-            resp_lines.append(f"{k}: {v}")
-        if body is not None:
-            resp_lines.append(f"Content-Length: {len(body)}")
-        resp_lines.append("Connection: close")
-        resp_lines.append("\r\n")
-
-        head_data = "\r\n".join(resp_lines).encode("latin1")
-        try:
-            self.connection.sendall(head_data + (body or b""))
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-
     def handle_proxy(self):
         """HTTP 反向代理处理"""
         prefix = self.server.prefix
@@ -414,28 +431,8 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 if k_lower not in ("content-length", "transfer-encoding", "connection"):
                     out_headers.append((k, v))
 
-            # 1. SSE 流式直通
-            if "text/event-stream" in content_type:
-                self.send_response_only(resp.status, resp.reason)
-                for k, v in out_headers:
-                    self.send_header(k, v)
-                self.send_header("Cache-Control", "no-cache, no-transform")
-                self.send_header("X-Accel-Buffering", "no")
-                self.send_header("Connection", "close")
-                self.end_headers()
-                while True:
-                    chunk = resp.read(1024)
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    self.wfile.flush()
-                self.close_connection = True
-                conn.close()
-                return
-
-            # 2. HTML 注入改写
-            is_html = "text/html" in content_type and (0 <= content_length <= MAX_HTML_INJECT_SIZE or content_length == -1)
-            if is_html:
+            # HTML 注入改写
+            if "text/html" in content_type:
                 resp_body = resp.read()
                 if "gzip" in content_encoding:
                     try:
@@ -450,7 +447,8 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                     return m.group(0) if (p.startswith("//") or (prefix and p.startswith(prefix))) else f"{attr}={quote}{prefix}{p}"
 
                 modified_html = HTML_ATTR_RE.sub(replace_attr, html_text)
-                bridge_code = self.server.bridge_code
+                base_tag = f'<base href="{prefix}/">' if prefix else ""
+                bridge_code = base_tag + self.server.bridge_code
 
                 head_match = re.search(r"(?i)<head[^>]*>", modified_html)
                 if head_match:
@@ -461,49 +459,74 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
 
                 final_bytes = modified_html.encode("utf-8")
                 filtered_headers = [(k, v) for k, v in out_headers if k.lower() not in ("content-encoding", "content-security-policy", "content-security-policy-report-only")]
-                self._send_direct(resp.status, resp.reason, filtered_headers, final_bytes)
-                self.close_connection = True
-                conn.close()
-                return
 
-            # 3. 大文件分块转发
-            if content_length > 10 * 1024 * 1024:
                 resp_lines = [f"HTTP/1.1 {resp.status} {resp.reason}"]
-                for k, v in out_headers:
+                for k, v in filtered_headers:
                     resp_lines.append(f"{k}: {v}")
-                if content_length >= 0:
-                    resp_lines.append(f"Content-Length: {content_length}")
+                resp_lines.append(f"Content-Length: {len(final_bytes)}")
                 resp_lines.append("Connection: close\r\n\r\n")
 
-                try:
-                    self.connection.sendall("\r\n".join(resp_lines).encode("latin1"))
-                    while True:
-                        chunk = resp.read(262144)
-                        if not chunk:
-                            break
-                        self.connection.sendall(chunk)
-                except (BrokenPipeError, ConnectionResetError):
-                    pass
+                self.connection.sendall("\r\n".join(resp_lines).encode("latin1") + final_bytes)
                 self.close_connection = True
                 conn.close()
                 return
 
-            # 4. 静态与通用响应转发
-            resp_body = resp.read()
-            is_gzip_js = "gzip" in content_encoding and req_path.endswith(".js")
-            if is_gzip_js:
-                try:
-                    resp_body = gzip.decompress(resp_body)
-                    content_encoding = ""
-                except Exception:
-                    pass
+            # JS 动态路由适配改写与响应转发
+            if prefix and req_path.endswith(".js"):
+                resp_body = resp.read()
+                is_gzip = "gzip" in content_encoding
+                if is_gzip:
+                    try:
+                        resp_body = gzip.decompress(resp_body)
+                        content_encoding = ""
+                    except Exception:
+                        pass
 
-            if self.server.patch_func and req_path.endswith(".js"):
-                if self.server.target_func in resp_body:
-                    resp_body = resp_body.replace(self.server.target_func, self.server.patch_func)
+                def patch_route(m):
+                    fn = m.group(1).decode("utf-8")
+                    arg = m.group(2).decode("utf-8")
+                    route = m.group(3).decode("utf-8")
+                    val = m.group(4).decode("utf-8")
+                    return (
+                        f'function {fn}({arg}){{const p="{prefix}";const s={arg}.startsWith(p)?'
+                        f'{arg}.slice(p.length)||"/":{arg};return/^\\/{route}(?:\\/|$)/.test(s)?'
+                        f'({arg}.startsWith(p)?p+{val}:{val}):({arg}.startsWith(p)?p:void 0)}}'
+                    ).encode("utf-8")
 
-            filtered_headers = [(k, v) for k, v in out_headers if not (is_gzip_js and k.lower() == "content-encoding")]
-            self._send_direct(resp.status, resp.reason, filtered_headers, resp_body)
+                if not content_encoding and JS_ROUTE_RE.search(resp_body):
+                    resp_body = JS_ROUTE_RE.sub(patch_route, resp_body)
+
+                filtered_headers = []
+                for k, v in out_headers:
+                    if not content_encoding and k.lower() == "content-encoding":
+                        continue
+                    filtered_headers.append((k, v))
+
+                resp_lines = [f"HTTP/1.1 {resp.status} {resp.reason}"]
+                for k, v in filtered_headers:
+                    resp_lines.append(f"{k}: {v}")
+                resp_lines.append(f"Content-Length: {len(resp_body)}")
+                resp_lines.append("Connection: close\r\n\r\n")
+
+                self.connection.sendall("\r\n".join(resp_lines).encode("latin1") + resp_body)
+                self.close_connection = True
+                conn.close()
+                return
+
+            # 通用流式直通（API / 静态资源 / SSE / 音视频流）
+            resp_lines = [f"HTTP/1.1 {resp.status} {resp.reason}"]
+            for k, v in out_headers:
+                resp_lines.append(f"{k}: {v}")
+            if content_length >= 0:
+                resp_lines.append(f"Content-Length: {content_length}")
+            resp_lines.append("Connection: close\r\n\r\n")
+
+            self.connection.sendall("\r\n".join(resp_lines).encode("latin1"))
+            while True:
+                chunk = resp.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                self.connection.sendall(chunk)
 
             self.close_connection = True
             conn.close()
@@ -550,7 +573,7 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 if x_list:
                     break
                 for s in r_list:
-                    data = s.recv(65536)
+                    data = s.recv(CHUNK_SIZE)
                     if not data:
                         return
                     if s is client_sock:
@@ -584,8 +607,6 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         self.target_port = target_port
         self.prefix = prefix.rstrip("/")
         self.bridge_code = generate_bridge_script(self.prefix)
-        self.target_func = b"function n6(i){return/^\\/console(?:\\/|$)/.test(i)?c8e:void 0}"
-        self.patch_func = f'function n6(i){{const p="{self.prefix}";const s=i.startsWith(p)?i.slice(p.length)||"/":i;return/^\\/console(?:\\/|$)/.test(s)?(i.startsWith(p)?p+c8e:c8e):(i.startsWith(p)?p:void 0)}}'.encode("utf-8") if self.prefix else None
 
         if os.path.exists(socket_path):
             try:
