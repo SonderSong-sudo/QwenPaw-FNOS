@@ -5,6 +5,7 @@
 # 应用信息
 APP_NAME="QwenPaw"
 LOG_FILE="${TRIM_PKGVAR}/info.log"
+GATEWAY_LOG_FILE="${TRIM_PKGVAR}/fngateway.log"
 PID_FILE="${TRIM_PKGVAR}/app.pid"
 
 # 路径
@@ -31,10 +32,33 @@ export npm_config_tmp="${TRIM_PKGVAR}/.npm-tmp"
 export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="/var/apps/Chrome-for-Testing-yuexps/target/chrome-headless-shell"
 
+# 日志轮转函数 (单文件超3MB轮转，日期命名，保留最近3个备份)
+rotate_log() {
+    local target_log="$1"
+    local max_size=$((3 * 1024 * 1024))
+    local max_backups=3
+
+    if [ -f "${target_log}" ]; then
+        local current_size=$(stat -c%s "${target_log}" 2>/dev/null || wc -c < "${target_log}" 2>/dev/null || echo 0)
+        if [ "${current_size}" -ge "${max_size}" ]; then
+            local log_dir=$(dirname "${target_log}")
+            local log_base=$(basename "${target_log}" .log)
+            local timestamp=$(date '+%Y%m%d_%H%M%S')
+            local backup_file="${log_dir}/${log_base}_${timestamp}.log"
+
+            mv "${target_log}" "${backup_file}"
+            touch "${target_log}"
+
+            # 清理超出数量的旧备份
+            ls -1t "${log_dir}/${log_base}_"*.log 2>/dev/null | tail -n +$((max_backups + 1)) | xargs -r rm -f
+        fi
+    fi
+}
+
 # 日志函数
 log_msg() {
     mkdir -p "$(dirname "${LOG_FILE}")"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> ${LOG_FILE}
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
 }
 
 err_msg() {
@@ -57,6 +81,9 @@ check_process() {
 
 # 检查应用状态
 status() {
+    rotate_log "${LOG_FILE}"
+    rotate_log "${GATEWAY_LOG_FILE}"
+
     if [ -f "${PID_FILE}" ]; then
         local pid=$(cat "${PID_FILE}")
         if check_process "${pid}"; then
@@ -77,6 +104,10 @@ start_process() {
         fi
     fi
 
+    # 启动前检查并轮转日志
+    rotate_log "${LOG_FILE}"
+    rotate_log "${GATEWAY_LOG_FILE}"
+
     log_msg "正在启动 ${APP_NAME} ..."
 
     # Python 虚拟环境路径
@@ -93,6 +124,13 @@ start_process() {
     local app_pid=$!
     echo ${app_pid} > "${PID_FILE}"
 
+    # 启动网关服务
+    nohup "${python}" -u "${TRIM_APPDEST}/fngateway.py" \
+        --listen "${QWENPAW_PORT}" \
+        --socket "${TRIM_APPDEST}/web.sock" \
+        --prefix "/app/qwenpaw_yuexps" \
+        >> "${GATEWAY_LOG_FILE}" 2>&1 &
+
     sleep 2
     if check_process "${app_pid}"; then
         log_msg "${APP_NAME} 启动成功，PID: ${app_pid}"
@@ -107,6 +145,10 @@ start_process() {
 # 停止应用
 stop_process() {
     log_msg "正在停止 ${APP_NAME} 服务..."
+
+    # 停止网关
+    pkill -f "${TRIM_APPDEST}/fngateway.py" 2>/dev/null
+    rm -f "${TRIM_APPDEST}/web.sock"
 
     # 检查 PID 文件是否存在
     if [ -f "${PID_FILE}" ]; then
@@ -220,6 +262,8 @@ install_callback() {
     log_msg "软链日志文件..."
     rm -rf "/var/apps/qwenpaw_yuexps/shares/qwenpaw_yuexps/info.log"
     ln -sf "${LOG_FILE}" "/var/apps/qwenpaw_yuexps/shares/qwenpaw_yuexps/info.log" >> "${LOG_FILE}" 2>&1
+    rm -rf "/var/apps/qwenpaw_yuexps/shares/qwenpaw_yuexps/fngateway.log"
+    ln -sf "${GATEWAY_LOG_FILE}" "/var/apps/qwenpaw_yuexps/shares/qwenpaw_yuexps/fngateway.log" >> "${LOG_FILE}" 2>&1
 
     return 0
 }

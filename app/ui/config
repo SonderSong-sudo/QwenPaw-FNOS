@@ -4,9 +4,10 @@
             "title": "QwenPaw",
             "icon": "images/icon_{0}.png",
             "type": "iframe",
-            "protocol": "",
-            "port": "${qwenpaw_webui_port}",
-            "url": "/",
+            "protocol": "http",
+            "gatewaySocket": "web.sock",
+            "gatewayPrefix": "/app/qwenpaw_yuexps",
+            "url": "/app/qwenpaw_yuexps/",
             "allUsers": false
         }
     }
