@@ -167,9 +167,9 @@ jobs:
           fi
 
           FPK_FILE="${{ steps.build.outputs.fpk_file }}"
-          X86_SIZE=$(stat -c %s "$FPK_FILE")
-          X86_SHA256=$(sha256sum "$FPK_FILE" | awk '{print $1}')
-          X86_URL="https://github.com/yuexps/QwenPaw-FNOS/releases/download/${TAG_NAME}/${FPK_FILE}"
+          FPK_SIZE=$(stat -c %s "$FPK_FILE")
+          FPK_SHA256=$(sha256sum "$FPK_FILE" | awk '{print $1}')
+          FPK_URL="https://github.com/yuexps/QwenPaw-FNOS/releases/download/${TAG_NAME}/${FPK_FILE}"
 
           TARGET_REPOS=("yuexps/FnDepot")
 
@@ -181,17 +181,17 @@ jobs:
             if [ -f "fnpack.json" ]; then
               jq --arg ver "$VERSION" \
                  --arg changelog "$CHANGELOG" \
-                 --arg x86_url "$X86_URL" \
-                 --arg x86_sha "$X86_SHA256" \
-                 --argjson x86_size "$X86_SIZE" \
+                 --arg fpk_url "$FPK_URL" \
+                 --arg fpk_sha "$FPK_SHA256" \
+                 --argjson fpk_size "$FPK_SIZE" \
                  '
                  .apps["qwenpaw_yuexps"].releases[$ver] = {
                    "changelog": $changelog,
                    "packages": {
-                     "x86": {
-                       "download_url": $x86_url,
-                       "sha256": $x86_sha,
-                       "size": $x86_size
+                     "all": {
+                       "download_url": $fpk_url,
+                       "sha256": $fpk_sha,
+                       "size": $fpk_size
                      }
                    }
                  }
