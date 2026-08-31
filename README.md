@@ -89,7 +89,7 @@
 
 ## 更新日志
 
-### 26.8.32（2026-08-31）
+### 26.8.33（2026-09-01）
 
 - **皮肤模式**：控制台支持浅色 / 深色 / 跟随系统三态切换（侧边栏底部「皮肤」按钮循环，应用设置 → 外观可精确选择，localStorage 持久化）
   - 参考 [yuexps/deepseek.harness.fnos](https://github.com/yuexps/deepseek.harness.fnos) 的 `data-theme` 方案
