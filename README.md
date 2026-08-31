@@ -93,11 +93,9 @@
 
 - **皮肤模式**：控制台支持浅色 / 深色 / 跟随系统三态切换（侧边栏底部「皮肤」按钮循环，应用设置 → 外观可精确选择，localStorage 持久化）
   - 参考 [yuexps/deepseek.harness.fnos](https://github.com/yuexps/deepseek.harness.fnos) 的 `data-theme` 方案
-- **修复**：点击「皮肤」按钮后主内容区空白 —— 该按钮复用 `nav-item` 样式但无 `data-view`，被全局导航监听误判为视图切换，调用 `switchView(null)` 清空了所有视图；已修复为视图切换前校验 `data-view`
 - **修复**：外网访问 QwenPaw 时登录页图标不显示 —— 网关桥接脚本原先只拦截 `fetch` / `XHR` / `EventSource` / `WebSocket`，未覆盖 React 运行时通过 `img.src = "/xxx"` 设置的资源；已扩展 DOM 属性 setter 拦截（`src` / `href` / `poster` / `action` + `setAttribute` 兜底 + `style.backgroundImage` 的 `url()`），自动补 `/qwenpaw/` 子路径前缀
 - **修复**：安装回调创建 venv 时未固定 umask，权限随执行环境漂移（可能建成 700 导致服务不可读）；已在 `install_callback()` 中设置 `umask 022`，稳定为 755/644
 - **调整**：「检查更新 / 升级」从应用设置移至控制台首页「快速操作」模块
-- **更名**：分发版显示名改为「QwenPaw-FNOS · 繁荼分发版」（应用 ID / 子路径 / 包名均不变，不影响升级链）
 
 ### 26.8.31（2026-08-31）
 
