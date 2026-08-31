@@ -1,8 +1,13 @@
 appname               = qwenpaw_yuexps
-version               = 26.8.28
+version               = 26.8.32
 display_name          = QwenPaw
 desc                  = """
 你的 AI 个人助理；安装极简、本地与云上均可部署；支持多端接入、能力轻松扩展。<br><br>
+本版本包含两个桌面入口：<br>
+「QwenPaw」— 完整 Web 界面，直接访问聊天与服务配置。<br>
+「QwenPaw 控制台」— 服务管理控制台：查看运行状态、启停/重启服务、查看运行日志（带侧边栏，参考 com.dustinky.qwenpaw 控制台模块）。<br>
+「飞牛统一网关」— 控制台侧边栏底部入口：单端口 HTTP/HTTPS 自适应反代、外部自定义访问地址、访问密码鉴权，一个地址打通局域网与外部访问。<br>
+「应用设置」— 控制台侧边栏入口：外观（浅色/深色/跟随系统皮肤模式）、网络代理（HTTP/HTTPS/SOCKS5，注入 QwenPaw 出站环境变量）、重置访问密码、重置运行环境/修复服务（参考 deepseek.harness.fnos 应用设置）；「检查更新」位于控制台首页快速操作模块。<br><br>
 核心能力：<br>
 由你掌控 — 记忆与个性化完全由你掌控，支持本地或云端部署。无第三方托管，无数据上传。<br>
 Skills 扩展 — 内置定时任务、PDF/Office 处理、新闻摘要等；自定义技能自动加载，无绑定。通过 Skills 决定 QwenPaw 能做什么。<br>
@@ -22,4 +27,4 @@ distributor           = yuexps
 distributor_url       = https://github.com/yuexps/QwenPaw-FNOS
 desktop_uidir         = ui
 desktop_applaunchname = qwenpaw_yuexps.Application
-changelog             = 更新 QwenPaw 到 v2.1.0 版本
+changelog             = 控制台新增「皮肤模式」：浅色/深色/跟随系统三态（参考 deepseek.harness.fnos 的 data-theme 方案，localStorage 持久化，侧边栏底部快捷循环按钮 + 应用设置外观卡片）；「检查更新/升级」从应用设置移至控制台首页「快速操作」模块；分发版名称改为「QwenPaw-FNOS · 繁荼」；此前为：5667 HTTPS 场景对齐 DHS（randomUUID polyfill、CSP 头剥离、WebSocket 显式同源绝对地址、Location 子路径改写）；控制台新增「应用设置」：升级维护、网络代理、重置访问密码、重置运行环境/修复服务；「打开 QwenPaw」改走 fnOS 统一网关子路径修复外网访问；控制台新增「飞牛统一网关」：单端口 HTTP/HTTPS 自适应反代、外部自定义地址、访问密码鉴权；此前为拆分为双桌面入口：QwenPaw（完整界面）+ QwenPaw 控制台（侧边栏控制台，保留运行状态与日志，删除外网访问/QQ群/关于模块，参考 com.dustinky.qwenpaw）
