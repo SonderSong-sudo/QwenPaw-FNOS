@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QwenPaw 控制台</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%237c3aed'/><text x='32' y='46' font-size='42' font-weight='bold' font-family='-apple-system,BlinkMacSystemFont,sans-serif' fill='white' text-anchor='middle'>Q</text></svg>">
+<link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="./favicon.png">
 <style>
   /* ============ 主题变量（参考 Nuxt UI 语义） ============ */
   :root {
@@ -326,6 +327,8 @@
   .btn-ghost:hover { background: var(--ui-bg-elevated); color: var(--ui-text); }
   .btn-success { background: var(--ui-success); color: #fff; }
   .btn-success:hover { opacity: 0.9; }
+  .btn-danger { background: var(--ui-error); color: #fff; }
+  .btn-danger:hover { opacity: 0.9; }
   .btn-error-soft { background: var(--ui-error-soft); color: var(--ui-error); }
   .btn-warning { background: var(--ui-warning); color: #fff; }
   .btn-warning:hover { opacity: 0.9; }
@@ -908,7 +911,7 @@
                     <div class="action-sub">访问 QwenPaw Web 界面</div>
                   </div>
                 </div>
-                <button id="btnOpen" class="btn btn-outline btn-xs" disabled onclick="openQwenPaw()">
+                <button id="btnOpen" class="btn btn-danger btn-xs" disabled onclick="openQwenPaw()">
                   <svg class="icon-sm"><use href="#i-external-link"/></svg>打开
                 </button>
               </div>
@@ -1463,7 +1466,7 @@ function renderActions(actions) {
       '<svg class="icon-sm"><use href="#i-stop-circle"/></svg>停止</button>' +
       '<button class="btn btn-primary btn-lg" onclick="doAction(\'restart\')">' +
       '<svg class="icon-sm"><use href="#i-rotate-cw"/></svg>重启服务</button>' +
-      '<button class="btn btn-outline btn-lg" onclick="openQwenPaw()">' +
+      '<button class="btn btn-danger btn-lg" onclick="openQwenPaw()">' +
       '<svg class="icon-sm"><use href="#i-external-link"/></svg>打开 QwenPaw</button>';
   } else {
     actions.innerHTML =
