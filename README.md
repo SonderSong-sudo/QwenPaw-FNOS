@@ -97,11 +97,9 @@
 - **运行态状态卡片**：在「重启服务」按钮旁新增「打开 QwenPaw」按钮，行为与快速操作入口完全一致（`port` 模式走 `http://host:proxyPort/`、`custom` 模式走 `customUrl`、默认走 `origin/app/qwenpaw_yuexps/qwenpaw/`，`_blank` 打开）
 - **移除「飞牛统一网关 → 访问地址」卡片**：按 hostname 猜内网/外网天然不可靠（外网场景下页面无法获知 FN Connect/DDNS 公网域名、5666/5667 端口公网不可达、`origin + /app/` 必先经 fnOS 登录墙），改为通过概览页快速操作 + 运行态状态卡上的「打开 QwenPaw」按钮唯一可控跳转
 - **修复外网访问地址**：「飞牛网关」模块的「访问地址」按访问来源动态渲染 —— 外网（FN Connect / DDNS / 域名）访问时只展示「当前 origin + `/app/qwenpaw_yuexps/qwenpaw/`」这一个可用地址（点击后先登录飞牛，登录成功自动进入 QwenPaw），不再展示公网不可达的 `:5666` / `:5667` 端口地址和反代端口直连地址；局域网访问仍完整展示 5666/5667 与反代端口地址。根因：外网链路中 5666/5667 端口不开放（FN Connect 为隧道转发），此前展示的端口地址外网打不开
-- **修复**：点击「皮肤」按钮后主内容区空白 —— 该按钮复用 `nav-item` 样式但无 `data-view`，被全局导航监听误判为视图切换，调用 `switchView(null)` 清空了所有视图；已修复为视图切换前校验 `data-view`
 - **修复**：外网访问 QwenPaw 时登录页图标不显示 —— 网关桥接脚本原先只拦截 `fetch` / `XHR` / `EventSource` / `WebSocket`，未覆盖 React 运行时通过 `img.src = "/xxx"` 设置的资源；已扩展 DOM 属性 setter 拦截（`src` / `href` / `poster` / `action` + `setAttribute` 兜底 + `style.backgroundImage` 的 `url()`），自动补 `/qwenpaw/` 子路径前缀
 - **修复**：安装回调创建 venv 时未固定 umask，权限随执行环境漂移（可能建成 700 导致服务不可读）；已在 `install_callback()` 中设置 `umask 022`，稳定为 755/644
 - **调整**：「检查更新 / 升级」从应用设置移至控制台首页「快速操作」模块
-- **更名**：分发版显示名改为「QwenPaw-FNOS · 繁荼分发版」（应用 ID / 子路径 /包名均不变，不影响升级链）
 
 ### 26.8.31（2026-08-31）
 
