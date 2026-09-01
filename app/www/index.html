@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QwenPaw 控制台</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%237c3aed'/><text x='32' y='46' font-size='42' font-weight='bold' font-family='-apple-system,BlinkMacSystemFont,sans-serif' fill='white' text-anchor='middle'>Q</text></svg>">
 <style>
   /* ============ 主题变量（参考 Nuxt UI 语义） ============ */
   :root {
@@ -643,24 +644,6 @@
   .gw-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .gw-status.on .gw-dot { background: var(--ui-success); }
   .gw-status.off .gw-dot { background: var(--ui-warning); }
-  .gw-addr-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 0;
-    border-bottom: 1px dashed var(--ui-border);
-    font-size: 13px;
-  }
-  .gw-addr-row:last-child { border-bottom: none; }
-  .gw-addr-left { min-width: 0; }
-  .gw-addr-desc { font-size: 12px; color: var(--ui-text-muted); margin-bottom: 2px; }
-  .gw-addr-url {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12.5px;
-    color: var(--ui-primary);
-    word-break: break-all;
-  }
   .gw-save-bar {
     display: flex;
     justify-content: flex-end;
@@ -859,10 +842,6 @@
       <button class="nav-item" data-view="settings">
         <svg class="icon-sm"><use href="#i-package"/></svg>
         应用设置
-      </button>
-      <button class="nav-item" id="themeBtn" onclick="cycleTheme()" title="切换皮肤模式：跟随系统 / 浅色 / 深色">
-        <svg class="icon-sm"><use id="themeIconUse" href="#i-monitor"/></svg>
-        <span id="themeLabel">跟随系统</span>
       </button>
     </div>
     <div class="sidebar-footer">QwenPaw-FNOS · 繁荼分发版</div>
@@ -1116,15 +1095,6 @@
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-header">
-            <svg class="icon-sm" style="color:var(--ui-info)"><use href="#i-radio"/></svg>
-            访问地址
-          </div>
-          <div class="card-body" id="gwAddrList">
-            <div class="empty">保存设置后可查看访问地址</div>
-          </div>
-        </div>
       </section>
 
       <!-- ===== 应用设置视图 ===== -->
@@ -1175,7 +1145,7 @@
                 </div>
               </label>
             </div>
-            <p class="form-hint" style="margin-top:14px">选择会即时生效并保存在浏览器本地。侧边栏底部的「皮肤」按钮可快速循环切换三种模式。</p>
+            <p class="form-hint" style="margin-top:14px">选择会即时生效并保存在浏览器本地。</p>
           </div>
         </div>
 
@@ -1492,7 +1462,9 @@ function renderActions(actions) {
       '<button class="btn btn-outline btn-lg" onclick="doAction(\'stop\')">' +
       '<svg class="icon-sm"><use href="#i-stop-circle"/></svg>停止</button>' +
       '<button class="btn btn-primary btn-lg" onclick="doAction(\'restart\')">' +
-      '<svg class="icon-sm"><use href="#i-rotate-cw"/></svg>重启服务</button>';
+      '<svg class="icon-sm"><use href="#i-rotate-cw"/></svg>重启服务</button>' +
+      '<button class="btn btn-outline btn-lg" onclick="openQwenPaw()">' +
+      '<svg class="icon-sm"><use href="#i-external-link"/></svg>打开 QwenPaw</button>';
   } else {
     actions.innerHTML =
       '<button class="btn btn-primary btn-lg" onclick="doAction(\'start\')">' +
@@ -1588,46 +1560,6 @@ function renderGateway() {
     st.className = 'gw-status off';
     stText.textContent = '反代端口未监听（保存设置后自动启动，或检查端口是否被占用）';
   }
-  renderGatewayAddrs();
-}
-function renderGatewayAddrs() {
-  var box = document.getElementById('gwAddrList');
-  var host = window.location.hostname || 'NAS_IP';
-  var html = '';
-
-  // 飞牛统一网关入口：由 fnOS nginx 经 web.sock 转发，外网（DDNS / FN Connect / 端口映射）访问走此地址
-  var fngHttp = 'http://' + host + ':5666/app/qwenpaw_yuexps/qwenpaw/';
-  var fngHttps = 'https://' + host + ':5667/app/qwenpaw_yuexps/qwenpaw/';
-  html += '<div class="gw-addr-desc" style="margin-top:4px">飞牛统一网关（外网访问：需在 fnOS 配置 DDNS / FN Connect 或路由器映射 5666/5667 端口）</div>';
-  html += '<div class="gw-addr-row">' +
-    '<div class="gw-addr-left"><div class="gw-addr-desc">统一网关入口（HTTP）</div>' +
-    '<div class="gw-addr-url">' + esc(fngHttp) + '</div></div>' +
-    '<button class="btn btn-outline btn-xs" onclick="window.open(\'' + fngHttp + '\',\'_blank\')">打开</button></div>';
-  html += '<div class="gw-addr-row">' +
-    '<div class="gw-addr-left"><div class="gw-addr-desc">统一网关入口（HTTPS）</div>' +
-    '<div class="gw-addr-url">' + esc(fngHttps) + '</div></div>' +
-    '<button class="btn btn-outline btn-xs" onclick="window.open(\'' + fngHttps + '\',\'_blank\')">打开</button></div>';
-
-  if (gateway.proxyRunning) {
-    var httpUrl = 'http://' + host + ':' + gateway.proxyPort + '/';
-    var httpsUrl = 'https://' + host + ':' + gateway.proxyPort + '/';
-    html += '<div class="gw-addr-desc" style="margin-top:10px">独立反代端口（单端口 HTTP/HTTPS 自适应 + 访问密码）</div>';
-    html += '<div class="gw-addr-row">' +
-      '<div class="gw-addr-left"><div class="gw-addr-desc">局域网访问（HTTP）</div>' +
-      '<div class="gw-addr-url">' + esc(httpUrl) + '</div></div>' +
-      '<button class="btn btn-outline btn-xs" onclick="window.open(\'' + httpUrl + '\',\'_blank\')">打开</button></div>';
-    html += '<div class="gw-addr-row">' +
-      '<div class="gw-addr-left"><div class="gw-addr-desc">局域网访问（HTTPS 自签名证书）</div>' +
-      '<div class="gw-addr-url">' + esc(httpsUrl) + '</div></div>' +
-      '<button class="btn btn-outline btn-xs" onclick="window.open(\'' + httpsUrl + '\',\'_blank\')">打开</button></div>';
-    if (gateway.mode === 'custom' && gateway.customUrl) {
-      html += '<div class="gw-addr-row">' +
-        '<div class="gw-addr-left"><div class="gw-addr-desc">自定义外部地址</div>' +
-        '<div class="gw-addr-url">' + esc(gateway.customUrl) + '</div></div>' +
-        '<button class="btn btn-outline btn-xs" onclick="window.open(\'' + esc(gateway.customUrl) + '\',\'_blank\')">打开</button></div>';
-    }
-  }
-  box.innerHTML = html;
 }
 function saveGatewayConfig() {
   var btn = document.getElementById('btnSaveGateway');
@@ -1670,18 +1602,8 @@ function applyTheme(mode) {
   if (!THEME_META[mode]) mode = 'auto';
   document.documentElement.setAttribute('data-theme', mode);
   try { localStorage.setItem(THEME_KEY, mode); } catch (e) {}
-  var iconUse = document.getElementById('themeIconUse');
-  var label = document.getElementById('themeLabel');
-  if (iconUse) iconUse.setAttribute('href', '#' + THEME_META[mode].icon);
-  if (label) label.textContent = THEME_META[mode].label;
   var radio = document.querySelector('input[name="themeMode"][value="' + mode + '"]');
   if (radio) radio.checked = true;
-}
-function cycleTheme() {
-  var order = ['auto', 'light', 'dark'];
-  var cur = document.documentElement.getAttribute('data-theme') || 'auto';
-  var idx = order.indexOf(cur);
-  applyTheme(order[(idx + 1) % order.length]);
 }
 function initTheme() {
   var m = 'auto';

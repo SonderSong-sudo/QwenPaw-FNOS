@@ -51,7 +51,7 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 STATUS_CACHE_TTL = 60
 
 # 应用安装包版本（与 manifest 的 version 保持同步；升级时同步更新）
-APP_VERSION = "26.8.33"
+APP_VERSION = "26.8.34"
 # 远程更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
 UPDATE_CHECK_URL = "https://api.github.com/repos/yuexps/QwenPaw-FNOS/releases/latest"
 UPDATE_CHECK_TTL = 600  # 检查结果缓存 10 分钟

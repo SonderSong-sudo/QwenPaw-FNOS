@@ -95,6 +95,15 @@ status() {
 
 # 启动应用
 start_process() {
+    # QW-009 防御：appcenter 装/升级会把 venv 存量权限改成 700（umask 管不了），
+    # 每次启动主动断言遍历链（venv→bin/lib→python*→site-packages）与读位，
+    # 保证治理沙箱子进程能读到 pyvenv.cfg、标准库与 site-packages
+    # 必须放在 PID 早退分支之前：进程"已运行但权限已被整肃"时也要能自愈
+    chmod 771 "$(dirname "${QWENPAW_VENV}")" 2>/dev/null || true
+    chmod 711 "${QWENPAW_VENV}" "${QWENPAW_VENV}/bin" "${QWENPAW_VENV}/lib" 2>/dev/null || true
+    chmod 711 "${QWENPAW_VENV}"/lib/python* "${QWENPAW_VENV}"/lib/python*/site-packages 2>/dev/null || true
+    chmod 644 "${QWENPAW_VENV}/pyvenv.cfg" 2>/dev/null || true
+
     # 检查是否已经在运行
     if [ -f "${PID_FILE}" ]; then
         local pid=$(cat "${PID_FILE}")
