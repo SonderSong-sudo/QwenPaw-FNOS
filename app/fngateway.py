@@ -940,19 +940,26 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 pass
 
     def _adapt_qwenpaw_html(self, payload: bytes) -> bytes:
-        """改写 QwenPaw 前端 HTML：绝对资源路径 -> 相对路径 + 注入网关桥接脚本"""
+        """改写 QwenPaw 前端 HTML：绝对资源路径 -> 相对路径 + 注入 <base href> + 网关桥接脚本"""
         try:
             html = payload.decode("utf-8", "replace")
         except Exception:
             return payload
-        # 静态资源属性（src/href/poster/action）的 "/xxx" -> "./xxx"（相对 /qwenpaw/ 基准）
+        # 网关子路径基准（注入到桥接脚本，替代运行时依赖 location.pathname 推算）：
+        # 外部访问形如 <NAS>:5666/app/qwenpaw_yuexps/qwenpaw/，SPA 路由 pushState 一旦脱前缀，
+        # location.pathname 就不再可靠，必须由网关侧把正确基准钉死。
+        gw_base = (self.server.prefix or "") + "/qwenpaw"
+        # 静态资源属性（src/href/poster/action）的 "/xxx" -> "./xxx"（相对 <base href> 解析）
         html = re.sub(r'(\b(?:src|href|poster|action)\s*=\s*["\'])/', r"\1./", html)
-        bridge = QWENPAW_BRIDGE_SCRIPT
+        bridge = QWENPAW_BRIDGE_SCRIPT.replace("__GW_BASE__", gw_base)
         m = re.search(r"<head[^>]*>", html, re.IGNORECASE)
         if m:
-            html = html[: m.end()] + bridge + html[m.end():]
+            head_end = m.end()
+            # <base href> 必须在 head 内其它 URL 引用元素之前（规范要求），故插在 head 最前
+            base_tag = '<base href="%s/" />' % gw_base
+            html = html[:head_end] + base_tag + bridge + html[head_end:]
         else:
-            html = bridge + html
+            html = '<base href="%s/" />' % gw_base + bridge + html
         return html.encode("utf-8", "replace")
 
     def _write_head_raw(self, lines):
@@ -1026,7 +1033,9 @@ HOP_BY_HOP = frozenset({
 # 并改写 WebSocket/EventSource 的同源路径。静态资源由 HTML 改写为相对路径。
 QWENPAW_BRIDGE_SCRIPT = """<script>
 (function(){
-  var B = location.pathname.replace(/\\/+$/,'');
+  // 网关侧注入的子路径基准（如 /app/qwenpaw_yuexps/qwenpaw）。
+  // 优先用注入值：SPA 路由脱前缀后 location.pathname 不可靠，必须由网关钉死。
+  var B = "__GW_BASE__" || location.pathname.replace(/\\/+$/,'');
   // randomUUID polyfill：HTTP 局域网（非安全上下文）下 crypto.randomUUID 不可用，
   // 参考 DHS 适配文档（randomUUID is not a function），纯 JS 实现 RFC4122 v4 兜底
   try {
@@ -1045,7 +1054,10 @@ QWENPAW_BRIDGE_SCRIPT = """<script>
   // 站内 http(s) 绝对 URL -> 补子路径前缀（仅同源，跨域原样放行）
   function fix(u){
     if (typeof u !== 'string' || !u) return u;
-    if (u.charAt(0) === '/') return B + u;
+    if (u.charAt(0) === '/') {
+      if (u.indexOf(B) === 0) return u;  // 已带前缀（如 location.pathname 拼接），幂等
+      return B + u;
+    }
     if (!/^https?:/i.test(u)) return u;
     try {
       var x = new URL(u);
@@ -1064,6 +1076,20 @@ QWENPAW_BRIDGE_SCRIPT = """<script>
       return of(input, init);
     };
   }
+  // SPA 路由（Vite/React Router 等）通过 history.pushState/replaceState 跳转，
+  // 传的是无前缀绝对路径（如 /sessions）。若不拦截，URL 会脱出网关前缀落到
+  // fnOS nginx 上 404，且 favicon、刷新、后续 fetch 全部跟着错。必须补前缀。
+  try {
+    var _push = history.pushState, _replace = history.replaceState;
+    history.pushState = function(st, t, u){
+      if (typeof u === 'string' && u.charAt(0) === '/' && u.indexOf(B) !== 0) u = B + u;
+      return _push.call(this, st, t, u);
+    };
+    history.replaceState = function(st, t, u){
+      if (typeof u === 'string' && u.charAt(0) === '/' && u.indexOf(B) !== 0) u = B + u;
+      return _replace.call(this, st, t, u);
+    };
+  } catch(_) {}
   if (window.XMLHttpRequest) {
     var ox = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function(m, u){
