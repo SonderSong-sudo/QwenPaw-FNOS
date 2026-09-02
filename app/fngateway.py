@@ -1036,6 +1036,18 @@ QWENPAW_BRIDGE_SCRIPT = """<script>
   // 网关侧注入的子路径基准（如 /app/qwenpaw_yuexps/qwenpaw）。
   // 优先用注入值：SPA 路由脱前缀后 location.pathname 不可靠，必须由网关钉死。
   var B = "__GW_BASE__" || location.pathname.replace(/\\/+$/,'');
+  // 首屏为 React Router 6 等 basename="/" 的 SPA 预写 history.state.usr.pathname：
+  // 它们的 history 在初始化时 getIndexAndLocation() 会优先读 state.usr.pathname
+  // （仅当 state.usr 缺失时才退化到 createLocation(window.location)）。
+  // URL 真实形态是带前缀的，state.usr.pathname 必须为「无前缀」才能命中路由（/、/sessions 等）。
+  try {
+    var _seedKey = 'qpgw-' + Math.random().toString(36).slice(2, 8);
+    history.replaceState(
+      {usr: {pathname: '/', search: location.search, hash: location.hash, state: null, key: _seedKey}, idx: 0},
+      '',
+      location.href
+    );
+  } catch(_) {}
   // randomUUID polyfill：HTTP 局域网（非安全上下文）下 crypto.randomUUID 不可用，
   // 参考 DHS 适配文档（randomUUID is not a function），纯 JS 实现 RFC4122 v4 兜底
   try {
@@ -1076,17 +1088,32 @@ QWENPAW_BRIDGE_SCRIPT = """<script>
       return of(input, init);
     };
   }
-  // SPA 路由（Vite/React Router 等）通过 history.pushState/replaceState 跳转，
-  // 传的是无前缀绝对路径（如 /sessions）。若不拦截，URL 会脱出网关前缀落到
-  // fnOS nginx 上 404，且 favicon、刷新、后续 fetch 全部跟着错。必须补前缀。
+  // SPA 路由（Vite/React Router 等）通过 history.pushState/replaceState 跳转。
+  // 1) URL 端：传的是无前缀绝对路径（如 /sessions）。若不补前缀，会脱出 fnOS 统一网关
+  //    落到 nginx 上 404（favicon、刷新、子路由 fallback 全跟着坏）。
+  // 2) state.usr.pathname 端：必须保持为「无前缀」——React Router 6（basename="/"）
+  //    用 state.usr.pathname 匹配路由，URL 形态与 React Router 内部 pathname 视图
+  //    必须解耦（URL 带前缀给浏览器网关用，state.usr.pathname 不带前缀给路由匹配用）。
   try {
+    function stripStatePrefix(st){
+      try {
+        if (st && typeof st === 'object' && st.usr && typeof st.usr === 'object'
+            && typeof st.usr.pathname === 'string' && st.usr.pathname.charAt(0) === '/'
+            && st.usr.pathname.indexOf(B) === 0) {
+          var p = st.usr.pathname.slice(B.length);
+          st.usr.pathname = p || '/';
+        }
+      } catch(_) {}
+    }
     var _push = history.pushState, _replace = history.replaceState;
     history.pushState = function(st, t, u){
       if (typeof u === 'string' && u.charAt(0) === '/' && u.indexOf(B) !== 0) u = B + u;
+      stripStatePrefix(st);
       return _push.call(this, st, t, u);
     };
     history.replaceState = function(st, t, u){
       if (typeof u === 'string' && u.charAt(0) === '/' && u.indexOf(B) !== 0) u = B + u;
+      stripStatePrefix(st);
       return _replace.call(this, st, t, u);
     };
   } catch(_) {}
