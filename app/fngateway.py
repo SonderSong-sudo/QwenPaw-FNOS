@@ -907,6 +907,7 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
 
             ct = rh_dict.get("content-type", "")
             is_html = "text/html" in ct.lower()
+            is_js = "javascript" in ct.lower()
             has_cl = "content-length" in rh_dict
             is_stream = (not has_cl) or ("text/event-stream" in ct)
 
@@ -928,6 +929,8 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 payload = resp.read()
                 if is_html:
                     payload = self._adapt_qwenpaw_html(payload)
+                elif is_js:
+                    payload = self._patch_qwenpaw_js(payload)
                 out.append("Content-Length: %d" % len(payload))
                 out.append("Connection: close")
                 self._write_head_raw(out)
@@ -938,6 +941,48 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 conn.close()
             except Exception:
                 pass
+
+    def _patch_qwenpaw_js(self, payload: bytes) -> bytes:
+        """给上游 JS 的 basename 推断函数打补丁，使其识别 fnOS 网关子路径。
+
+        上游 QwenPaw WebUI（react-router v7）用 n6(pathname) 推断 basename，正则只认
+        /console 一种前缀。挂在 fnOS 统一网关子路径（/app/<appid>/qwenpaw/）下时无法
+        识别，basename 退化为 "/"，导致路由 /、/sessions 等全部失配、主内容 <Outlet />
+        渲染为空（侧边栏正常）。这里让 n6() 优先返回网关注入的
+        window.__QWENPAW_BASENAME__（由桥接脚本注入），未注入时保持原逻辑。
+        """
+        global _QWENPAW_PATCH_WARNED
+        try:
+            js = payload.decode("utf-8", "replace")
+        except Exception:
+            return payload
+
+        # 1) 精确 anchor 快速路径（当前构建命中）
+        if QWENPAW_BASENAME_ANCHOR in js:
+            return js.replace(QWENPAW_BASENAME_ANCHOR, QWENPAW_BASENAME_PATCH, 1).encode("utf-8", "replace")
+
+        # 2) 兜底：上游换构建导致 minified 标识符变化时，用正则泛化匹配
+        m = QWENPAW_BASENAME_RE.search(js)
+        if m:
+            fn, const = m.group(1), m.group(2)
+            patched = (
+                'function %s(i){var b=window.__QWENPAW_BASENAME__;'
+                'if(b&&i.indexOf(b)===0)return b;'
+                'return/^\\/console(?:\\/|$)/.test(i)?%s:void 0}' % (fn, const)
+            )
+            logger.info("QwenPaw basename 补丁：精确 anchor 未命中，改用正则兜底 (函数 %s, 常量 %s)", fn, const)
+            # 必须 encode 回 bytes：调用方按字节流处理（Content-Length / wfile.write）
+            return (js[:m.start()] + patched + js[m.end():]).encode("utf-8", "replace")
+
+        # 3) 都没命中：可能是上游改了实现。静默跳过会导致主内容空白且极难排查，故告警。
+        if not _QWENPAW_PATCH_WARNED:
+            _QWENPAW_PATCH_WARNED = True
+            logger.warning(
+                "QwenPaw basename 补丁未命中（%d 字节 JS）：未找到 n6 形式的 basename 推断函数。"
+                "上游可能已改动实现，WebUI 挂在网关子路径下可能出现主内容空白，请重新核对上游产物。",
+                len(payload),
+            )
+        return payload
 
     def _adapt_qwenpaw_html(self, payload: bytes) -> bytes:
         """改写 QwenPaw 前端 HTML：绝对资源路径 -> 相对路径 + 注入 <base href> + 网关桥接脚本"""
@@ -1028,6 +1073,30 @@ HOP_BY_HOP = frozenset({
     "te", "trailers", "transfer-encoding", "upgrade",
 })
 
+# 上游 QwenPaw WebUI 的 basename 推断函数（react-router v7）：
+#   function n6(i){return/^\/console(?:\/|$)/.test(i)?c8e:void 0}   // c8e === "/console"
+# 它只认 /console 一种子路径前缀，挂在 fnOS 统一网关子路径下时返回 undefined，
+# 导致 basename 退化为 "/"、路由全部失配、主内容 <Outlet /> 空白（侧边栏正常）。
+# 实测：Bse("/app/<appid>/qwenpaw/sessions") 修复前原样返回带前缀路径（失配），
+# 修复后返回 "/sessions"（命中）。网关注入 window.__QWENPAW_BASENAME__ 后，
+# 由下面的补丁让 n6() 优先返回它。
+QWENPAW_BASENAME_ANCHOR = r'function n6(i){return/^\/console(?:\/|$)/.test(i)?c8e:void 0}'
+QWENPAW_BASENAME_PATCH = (
+    r'function n6(i){var b=window.__QWENPAW_BASENAME__;'
+    r'if(b&&i.indexOf(b)===0)return b;'
+    r'return/^\/console(?:\/|$)/.test(i)?c8e:void 0}'
+)
+# 兜底正则：上游重新构建后函数名(n6)/常量名(c8e)这类 minified 标识符会变，
+# 精确 anchor 会失配。这里泛化两个标识符，保证换 hash/换构建仍能命中。
+# 注意：被匹配的目标是一段 JS 源码文本，里面的 (?: \/ | $ ) 都是**字面字符**，
+# 必须逐个转义（\| 和 \$）；若把 "|" 留作 alternation 运算符，整条正则会被切成
+# 两个分支，常量名捕获组将落到分支外而永远为 None。
+QWENPAW_BASENAME_RE = re.compile(
+    r'function\s+(\w+)\(i\)\{return/\^\\/console\(\?:\\/\|\$\)/\.test\(i\)\?(\w+):void\s*0\}'
+)
+# 同一进程内只告警一次，避免每个 JS 请求都刷日志
+_QWENPAW_PATCH_WARNED = False
+
 # 统一网关子路径反代时注入前端页面的桥接脚本（参考 DHS fnGatewayBridgeScript）：
 # 把 SPA 发出的同源绝对路径请求（/api/... 等）自动补全网关子路径前缀，
 # 并改写 WebSocket/EventSource 的同源路径。静态资源由 HTML 改写为相对路径。
@@ -1036,18 +1105,12 @@ QWENPAW_BRIDGE_SCRIPT = """<script>
   // 网关侧注入的子路径基准（如 /app/qwenpaw_yuexps/qwenpaw）。
   // 优先用注入值：SPA 路由脱前缀后 location.pathname 不可靠，必须由网关钉死。
   var B = "__GW_BASE__" || location.pathname.replace(/\\/+$/,'');
-  // 首屏为 React Router 6 等 basename="/" 的 SPA 预写 history.state.usr.pathname：
-  // 它们的 history 在初始化时 getIndexAndLocation() 会优先读 state.usr.pathname
-  // （仅当 state.usr 缺失时才退化到 createLocation(window.location)）。
-  // URL 真实形态是带前缀的，state.usr.pathname 必须为「无前缀」才能命中路由（/、/sessions 等）。
-  try {
-    var _seedKey = 'qpgw-' + Math.random().toString(36).slice(2, 8);
-    history.replaceState(
-      {usr: {pathname: '/', search: location.search, hash: location.hash, state: null, key: _seedKey}, idx: 0},
-      '',
-      location.href
-    );
-  } catch(_) {}
+  // 网关注入：应用子路径 basename（如 /app/qwenpaw_yuexps/qwenpaw）。
+  // 上游 QwenPaw WebUI（react-router v7）用 n6(pathname) 推断 basename，但其正则只认
+  // /console 一种前缀；fnOS 网关路径 /app/<appid>/qwenpaw/ 无法被识别 -> basename 退化为
+  // "/" -> 路由 /、/sessions 等全部失配 -> <Outlet /> 渲染空（侧边栏在、主内容空白）。
+  // 注意：不能依赖 location.pathname 现算 —— SPA 路由脱前缀后它已不可靠，必须由网关钉死。
+  try { window.__QWENPAW_BASENAME__ = B; } catch(_) {}
   // randomUUID polyfill：HTTP 局域网（非安全上下文）下 crypto.randomUUID 不可用，
   // 参考 DHS 适配文档（randomUUID is not a function），纯 JS 实现 RFC4122 v4 兜底
   try {
@@ -1088,32 +1151,18 @@ QWENPAW_BRIDGE_SCRIPT = """<script>
       return of(input, init);
     };
   }
-  // SPA 路由（Vite/React Router 等）通过 history.pushState/replaceState 跳转。
-  // 1) URL 端：传的是无前缀绝对路径（如 /sessions）。若不补前缀，会脱出 fnOS 统一网关
-  //    落到 nginx 上 404（favicon、刷新、子路由 fallback 全跟着坏）。
-  // 2) state.usr.pathname 端：必须保持为「无前缀」——React Router 6（basename="/"）
-  //    用 state.usr.pathname 匹配路由，URL 形态与 React Router 内部 pathname 视图
-  //    必须解耦（URL 带前缀给浏览器网关用，state.usr.pathname 不带前缀给路由匹配用）。
+  // SPA 路由（React Router v7 等）通过 history.pushState/replaceState 跳转。
+  // basename 正确后上游自身会写出带前缀的 URL（basename + to），此处补前缀仅作兜底：
+  // 保证 URL 不脱出 fnOS 统一网关（否则 favicon、刷新、子路由 fallback 全部 404）。
+  // 幂等：已带前缀的 URL 不重复补。
   try {
-    function stripStatePrefix(st){
-      try {
-        if (st && typeof st === 'object' && st.usr && typeof st.usr === 'object'
-            && typeof st.usr.pathname === 'string' && st.usr.pathname.charAt(0) === '/'
-            && st.usr.pathname.indexOf(B) === 0) {
-          var p = st.usr.pathname.slice(B.length);
-          st.usr.pathname = p || '/';
-        }
-      } catch(_) {}
-    }
     var _push = history.pushState, _replace = history.replaceState;
     history.pushState = function(st, t, u){
       if (typeof u === 'string' && u.charAt(0) === '/' && u.indexOf(B) !== 0) u = B + u;
-      stripStatePrefix(st);
       return _push.call(this, st, t, u);
     };
     history.replaceState = function(st, t, u){
       if (typeof u === 'string' && u.charAt(0) === '/' && u.indexOf(B) !== 0) u = B + u;
-      stripStatePrefix(st);
       return _replace.call(this, st, t, u);
     };
   } catch(_) {}
