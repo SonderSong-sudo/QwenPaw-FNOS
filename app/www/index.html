@@ -132,14 +132,9 @@
     width: 30px;
     height: 30px;
     border-radius: 8px;
-    background: linear-gradient(135deg, var(--ui-primary), #8b5cf6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    font-weight: 700;
-    font-size: 15px;
+    object-fit: contain;
     flex-shrink: 0;
+    background: var(--ui-bg-elevated);
   }
   .sidebar-brand .brand-text { font-weight: 700; font-size: 15px; letter-spacing: 0.2px; }
   .sidebar-brand .brand-sub { font-size: 11px; color: var(--ui-text-muted); }
@@ -820,7 +815,7 @@
   <!-- ============ 侧边栏 ============ -->
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <div class="brand-logo">Q</div>
+      <img class="brand-logo" src="./logo.png" alt="QwenPaw">
       <div>
         <div class="brand-text">QwenPaw 控制台</div>
         <div class="brand-sub">fnOS 服务管理</div>
