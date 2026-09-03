@@ -2299,6 +2299,10 @@
       return apiGet('api/check_update' + (force === false ? '' : '?force=1')).then(function (d) {
         renderUpdateResult(d);
         setCheckBtn(d && d.runtime_update_available ? 'update' : 'check');
+        if (d && d.runtime_update_available && !upgradeBusy) {
+          /* 发现新版本后自动开始升级，无需再点「更新」；稍作停顿让用户看到提示 */
+          setTimeout(doUpgrade, 800);
+        }
       }).catch(function () {
         renderUpdateResult(null);
         setCheckBtn('check');
@@ -2314,7 +2318,7 @@
       var html = '';
       if (d.runtime_update_available) {
         html += '<div class="update-result warning"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
-          '<span>发现 QwenPaw 内核新版本 v' + esc(d.runtime_latest_version) + '（当前 v' + esc(d.runtime_version) + '），点击「更新」开始升级，升级完成后自动重启服务</span></div>';
+          '<span>发现 QwenPaw 内核新版本 v' + esc(d.runtime_latest_version) + '（当前 v' + esc(d.runtime_version) + '），即将自动升级，升级完成后自动重启服务</span></div>';
       } else if (d.runtime_latest_version === null || d.runtime_latest_version === undefined) {
         html += '<div class="update-result error"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
           '<span>内核版本检查失败（当前 v' + esc(d.runtime_version) + '），请检查网络或在「应用设置」中配置代理</span></div>';
