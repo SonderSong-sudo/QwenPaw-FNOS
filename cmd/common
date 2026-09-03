@@ -23,6 +23,19 @@ export QWENPAW_AUTH_ENABLED=true
 export QWENPAW_AUTH_USERNAME="${qwenpaw_auth_username}"
 export QWENPAW_AUTH_PASSWORD="${qwenpaw_auth_password}"
 
+# 工作目录显式化（对齐商店版 com.dustinky.qwenpaw 的做法）：
+# 内核（-m qwenpaw app）默认用 $HOME/.qwenpaw，fngateway 回退到 data_dir/.qwenpaw，
+# 此前全靠"默认值恰好一致"，任何一环默认值变化都会导致配置/数据路径分裂。
+# 显式 export 后三处（内核 / fngateway / install_callback）钉死同一路径。
+export QWENPAW_WORKING_DIR="${TRIM_PKGVAR}/data/.qwenpaw"
+
+# 日志级别（安装向导 qwenpaw_log_level，缺省 info）
+export QWENPAW_LOG_LEVEL="${qwenpaw_log_level:-info}"
+
+# PyPI 镜像选择（安装向导 qwenpaw_pypi_mirror），落盘供 fngateway 内核直升使用
+mkdir -p "${TRIM_PKGVAR}/data" 2>/dev/null || true
+printf '%s' "${qwenpaw_pypi_mirror:-tsinghua}" > "${TRIM_PKGVAR}/data/pypi_mirror" 2>/dev/null || true
+
 # Node.js (可选)
 export PATH="/var/apps/nodejs_v22/target/bin:$PATH"
 export npm_config_cache="${TRIM_PKGVAR}/.npm-cache"
@@ -69,20 +82,29 @@ err_msg() {
     exit 1
 }
 
-# 检查进程
+# 检查进程（防 pid 复用误判：kill -0 通过后核对 cmdline 确属 QwenPaw；
+# /proc 不可读或 cmdline 为空（僵尸等）时退回 kill -0 语义）
 check_process() {
     local pid=$1
-    if kill -0 "${pid}" 2>/dev/null; then
-        return 0 # process exist
-    else
-        return 1 # process not exist
+    if ! kill -0 "${pid}" 2>/dev/null; then
+        return 1
     fi
+    local cmd
+    cmd=$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null) || return 0
+    if [ -n "${cmd}" ]; then
+        case "${cmd}" in
+            *qwenpaw*|*fngateway*) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+    return 0
 }
 
 # 检查应用状态
 status() {
     rotate_log "${LOG_FILE}"
     rotate_log "${GATEWAY_LOG_FILE}"
+    ensure_gateway
 
     if [ -f "${PID_FILE}" ]; then
         local pid=$(cat "${PID_FILE}")
@@ -91,6 +113,26 @@ status() {
         fi
     fi
     return 3 # 未运行
+}
+
+# 控制台网关自愈：fngateway 是常驻进程，崩溃后控制台失联直到应用重启。
+# 借 appcenter 周期性 status 探活拉起（CGI 版商店控制台每请求新进程，无此问题）。
+ensure_gateway() {
+    if ! pgrep -f "${TRIM_APPDEST}/fngateway.py" >/dev/null 2>&1; then
+        log_msg "检测到控制台网关未运行，正在拉起..."
+        rm -f "${TRIM_APPDEST}/web.sock" 2>/dev/null
+        nohup "${QWENPAW_VENV}/bin/python3" -u "${TRIM_APPDEST}/fngateway.py" \
+            --socket "${TRIM_APPDEST}/web.sock" \
+            --prefix "/app/qwenpaw_yuexps" \
+            --port "${QWENPAW_PORT}" \
+            --log-file "${LOG_FILE}" \
+            --gateway-log "${GATEWAY_LOG_FILE}" \
+            --pid-file "${PID_FILE}" \
+            --venv "${QWENPAW_VENV}" \
+            --data-dir "${TRIM_PKGVAR}/data" \
+            >> "${GATEWAY_LOG_FILE}" 2>&1 &
+        log_msg "控制台网关已拉起"
+    fi
 }
 
 # 启动应用
@@ -133,17 +175,8 @@ start_process() {
     local app_pid=$!
     echo ${app_pid} > "${PID_FILE}"
 
-    # 启动控制台网关服务
-    nohup "${python}" -u "${TRIM_APPDEST}/fngateway.py" \
-        --socket "${TRIM_APPDEST}/web.sock" \
-        --prefix "/app/qwenpaw_yuexps" \
-        --port "${QWENPAW_PORT}" \
-        --log-file "${LOG_FILE}" \
-        --gateway-log "${GATEWAY_LOG_FILE}" \
-        --pid-file "${PID_FILE}" \
-        --venv "${QWENPAW_VENV}" \
-        --data-dir "${TRIM_PKGVAR}/data" \
-        >> "${GATEWAY_LOG_FILE}" 2>&1 &
+    # 启动控制台网关服务（ensure_gateway 内含存活检测，避免重复拉起）
+    ensure_gateway
 
     sleep 2
     if check_process "${app_pid}"; then
@@ -254,9 +287,23 @@ install_callback() {
     local pip="${QWENPAW_VENV}/bin/pip"
     mkdir -p "${PIP_CACHE_DIR}"
 
-    # 设置国内镜像源
-    "${pip}" config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/
-    "${pip}" config set global.extra-index-url https://mirrors.aliyun.com/pypi/simple/
+    # 设置 pip 镜像源（按安装向导选择；fngateway 内核直升读取 data/pypi_mirror 同步使用）
+    local mirror="${qwenpaw_pypi_mirror:-tsinghua}"
+    case "${mirror}" in
+        official)
+            "${pip}" config unset global.index-url >/dev/null 2>&1 || true
+            ;;
+        aliyun)
+            "${pip}" config set global.index-url https://mirrors.aliyun.com/pypi/simple/ >/dev/null 2>&1
+            ;;
+        ustc)
+            "${pip}" config set global.index-url https://pypi.mirrors.ustc.edu.cn/simple/ >/dev/null 2>&1
+            ;;
+        *)
+            "${pip}" config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ >/dev/null 2>&1
+            ;;
+    esac
+    "${pip}" config set global.extra-index-url https://mirrors.aliyun.com/pypi/simple/ >/dev/null 2>&1
 
     # 安装项目并同步依赖
     log_msg "正在安装项目并同步依赖..."
@@ -290,6 +337,13 @@ install_callback() {
     ln -sf "${LOG_FILE}" "/var/apps/qwenpaw_yuexps/shares/qwenpaw_yuexps/info.log" >> "${LOG_FILE}" 2>&1
     rm -rf "/var/apps/qwenpaw_yuexps/shares/qwenpaw_yuexps/fngateway.log"
     ln -sf "${GATEWAY_LOG_FILE}" "/var/apps/qwenpaw_yuexps/shares/qwenpaw_yuexps/fngateway.log" >> "${LOG_FILE}" 2>&1
+
+    # 权属治理（对齐商店版）：appcenter 回调可能以 root 执行，把运行时目录归还服务用户
+    if [ -n "${TRIM_USERNAME}" ] && [ -n "${TRIM_GROUPNAME}" ]; then
+        log_msg "修正运行时目录属主 (${TRIM_USERNAME}:${TRIM_GROUPNAME})..."
+        chown -R "${TRIM_USERNAME}:${TRIM_GROUPNAME}" "${TRIM_PKGVAR}" 2>/dev/null || true
+        chown -R "${TRIM_USERNAME}:${TRIM_GROUPNAME}" ${TRIM_DATA_SHARE_PATHS%%:*} 2>/dev/null || true
+    fi
 
     return 0
 }
@@ -330,6 +384,26 @@ upgrade_init() {
 # 升级后回调
 upgrade_callback() {
     log_msg "执行升级后的处理工作..."
+
+    # 依赖同步（对齐商店版升级回调：不赌 install_callback 是否重跑，
+    # fpk 升级替换 server 代码后确保 venv 依赖与新代码匹配）
+    if [ ! -x "${QWENPAW_VENV}/bin/python3" ]; then
+        log_msg "虚拟环境缺失，正在重建..."
+        /usr/bin/python3 -m venv "${QWENPAW_VENV}" >> "${LOG_FILE}" 2>&1
+        "${QWENPAW_VENV}/bin/pip" config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ >/dev/null 2>&1
+    fi
+    log_msg "同步依赖..."
+    "${QWENPAW_VENV}/bin/pip" install --default-timeout=30 --retries 3 -e "${QWENPAW_SRC}" \
+        >> "${LOG_FILE}" 2>&1 \
+        && log_msg "依赖同步完成" \
+        || log_msg "依赖同步失败（服务仍可尝试启动），请查看日志"
+
+    # 权属治理（对齐商店版）
+    if [ -n "${TRIM_USERNAME}" ] && [ -n "${TRIM_GROUPNAME}" ]; then
+        chown -R "${TRIM_USERNAME}:${TRIM_GROUPNAME}" "${TRIM_PKGVAR}" 2>/dev/null || true
+        chown -R "${TRIM_USERNAME}:${TRIM_GROUPNAME}" ${TRIM_DATA_SHARE_PATHS%%:*} 2>/dev/null || true
+    fi
+
     return 0
 }
 
@@ -342,5 +416,12 @@ config_init() {
 # 配置回调
 config_callback() {
     log_msg "执行配置回调..."
+
+    # 对齐商店版 com.dustinky.qwenpaw：配置（端口/认证账号密码等）变更后
+    # 停止服务，由 appcenter 自动重启以应用新配置；此前为空实现，
+    # 改配置后不重启会导致新配置一直不生效
+    log_msg "配置已变更，正在停止服务以便应用新配置..."
+    stop_process
+    log_msg "配置已更新，服务将自动重启"
     return 0
 }

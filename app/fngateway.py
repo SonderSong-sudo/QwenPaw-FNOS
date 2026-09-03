@@ -40,6 +40,8 @@ import logging
 import argparse
 import subprocess
 import socketserver
+import tarfile
+import tempfile
 import importlib.util
 from http.server import BaseHTTPRequestHandler
 
@@ -55,7 +57,7 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 STATUS_CACHE_TTL = 60
 
 # 应用安装包版本（与 manifest 的 version 保持同步；升级时同步更新）
-APP_VERSION = "26.8.49"
+APP_VERSION = "26.8.50"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
 # 应用框架更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
@@ -121,9 +123,18 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             return False
         try:
             os.kill(int(pid), 0)
-            return True
         except (OSError, ProcessLookupError, PermissionError):
             return False
+        # 防 pid 复用误判：核对 cmdline 确属 qwenpaw（读不到 /proc 或 cmdline 为
+        # 空（僵尸）时退回 kill -0 语义）
+        try:
+            with open("/proc/%s/cmdline" % pid, "rb") as f:
+                argv = f.read().decode("utf-8", "replace")
+        except OSError:
+            return True
+        if not argv:
+            return True
+        return "qwenpaw" in argv
 
     def _kill_process_tree(self, pid_str: str, sig: int) -> None:
         """按进程组杀进程（start_new_session 使 bash 为组长，子进程同组），
@@ -747,6 +758,24 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
                 pass
         return False
 
+    def _pip_mirror_args(self) -> str:
+        """内核直升 pip 的镜像参数：读取安装向导落盘的选择（TRIM_PKGVAR/data/pypi_mirror），
+        缺省清华源。official 返回空串（直连 PyPI）。"""
+        var_dir = os.path.dirname(self.cfg.get("pid_file", "")) or "/tmp"
+        mirror = ""
+        try:
+            with open(os.path.join(var_dir, "data", "pypi_mirror"), encoding="utf-8") as f:
+                mirror = f.read().strip().lower()
+        except OSError:
+            mirror = ""
+        mirrors = {
+            "tsinghua": "https://pypi.tuna.tsinghua.edu.cn/simple",
+            "aliyun": "https://mirrors.aliyun.com/pypi/simple/",
+            "ustc": "https://pypi.mirrors.ustc.edu.cn/simple/",
+        }
+        url = mirrors.get(mirror, mirrors["tsinghua"])
+        return ("-i %s" % url) if url else ""
+
     def _build_upgrade_script(self, venv_python: str, pid_file: str, log_file: str,
                               up_log: str, up_pid: str, up_result: str, start_cmd: str) -> str:
         """构造后台升级脚本：pip 升级内核 -> 再启动服务（自包含，页面关闭也不中断）。
@@ -757,13 +786,19 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         import 失败当场崩溃（用户反馈「第一次升级闪退」）。
         """
         s = ""
+        # pip 下载通道：向导镜像 + 已配置的网络代理（此前裸连 PyPI，检查更新能过
+        # 但下载必挂的坑——检查走 _build_update_opener 代理，pip 却没注入）
+        pip_env = self.proxy_env()
+        if pip_env:
+            pip_env += " && "
+        pip_cmd = ("PYTHONUNBUFFERED=1 %s\"%s\" -m pip install --upgrade --no-input qwenpaw %s"
+                   % (pip_env, venv_python, self._pip_mirror_args()))
         s += ': > "' + up_log + '"\n'
         s += 'echo "=== QwenPaw 内核升级开始 ===" >> "' + up_log + '"\n'
         s += 'echo "时间: $(date \'+%Y-%m-%d %H:%M:%S\')" >> "' + up_log + '"\n'
         s += 'echo "" >> "' + up_log + '"\n'
-        s += 'echo "$ PYTHONUNBUFFERED=1 ' + venv_python + ' -m pip install --upgrade qwenpaw" >> "' + up_log + '"\n'
-        s += ('PYTHONUNBUFFERED=1 "' + venv_python + '" -m pip install --upgrade --no-input qwenpaw'
-              ' >> "' + up_log + '" 2>&1\n')
+        s += 'echo "$ ' + pip_cmd.replace('"', '') + '" >> "' + up_log + '"\n'
+        s += pip_cmd + ' >> "' + up_log + '" 2>&1\n'
         s += 'rc=$?\n'
         s += 'echo "" >> "' + up_log + '"\n'
         s += 'if [ $rc -eq 0 ]; then\n'
@@ -950,6 +985,68 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         time.sleep(1)
         return self.start_service()
 
+    # ---------------- 备份与恢复（参考 com.dustinky.qwenpaw 控制台） ----------------
+
+    def working_base(self) -> str:
+        """备份基目录：.qwenpaw 工作目录与 .qwenpaw.secret 密钥目录的共同父目录"""
+        data_dir = self.cfg.get("data_dir", "")
+        wd = self.working_dir()
+        if wd and os.path.dirname(wd) and os.path.dirname(wd) != wd:
+            return os.path.dirname(wd)
+        return data_dir
+
+    def secret_dir(self) -> str:
+        """QwenPaw 密钥目录（内核 SECRET_DIR = WORKING_DIR + '.secret'）"""
+        return self.working_dir().rstrip("/\\") + ".secret"
+
+    def create_backup(self) -> dict:
+        """打包工作目录 + 密钥目录为 tar.gz（返回临时文件信息，由请求方发送后清理）"""
+        base = self.working_base()
+        work = self.working_dir()
+        secret = self.secret_dir()
+        if not work or not os.path.isdir(work):
+            return {"success": False, "message": "工作目录不存在，无法备份"}
+        if not secret or not os.path.isdir(secret):
+            return {"success": False, "message": "密钥目录不存在，无法备份"}
+
+        name = "qwenpaw-backup-%s.tar.gz" % time.strftime("%Y%m%d-%H%M%S")
+        tmp = os.path.join(tempfile.gettempdir(), name)
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            with tarfile.open(tmp, "w:gz") as tf:
+                tf.add(work, arcname=os.path.basename(work.rstrip("/\\")))
+                tf.add(secret, arcname=os.path.basename(secret.rstrip("/\\")))
+            size = os.path.getsize(tmp)
+            if size <= 0:
+                return {"success": False, "message": "打包失败，文件为空"}
+        except Exception as e:
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+            return {"success": False, "message": "打包失败，请检查磁盘空间和权限（%s）" % e}
+        return {"success": True, "file": tmp, "name": name, "size": size}
+
+    def reset_auth(self) -> dict:
+        """POST /api/reset_auth：删除 auth.json 重置 QwenPaw 登录认证
+
+        内核认证状态以 auth.json 为准且启动时加载，删除后需重启服务，
+        下次进入 QwenPaw 将重新进入账号密码初始化向导。
+        """
+        auth_file = os.path.join(self.secret_dir(), "auth.json")
+        if not os.path.isfile(auth_file):
+            return {"success": True, "message": "未找到认证文件，无需重置"}
+        try:
+            os.remove(auth_file)
+        except Exception as e:
+            return {"success": False, "message": "删除认证文件失败：%s" % e}
+        # 重启服务让内核立即重新进入初始化向导
+        self.stop_service()
+        time.sleep(1)
+        self.start_service()
+        return {"success": True, "message": "认证已重置，服务已重启，下次进入 QwenPaw 将重新设置账号密码"}
+
     # ---------------- 网络代理 ----------------
 
     def proxy_env(self) -> str:
@@ -1072,6 +1169,10 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
             self.send_json(server.upgrade_logs())
             return
 
+        if action == "backup_download":
+            self.handle_backup_download()
+            return
+
         if method != "POST":
             self.send_json({"success": False, "message": "仅支持 POST 请求"})
             return
@@ -1084,6 +1185,10 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 self.send_json({"success": False, "message": "请求体不是合法的 JSON"})
                 return
             self.send_json(server.reset_password(data))
+            return
+
+        if action == "reset_auth":
+            self.send_json(server.reset_auth())
             return
 
         if action == "action":
@@ -1122,6 +1227,34 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
+    def handle_backup_download(self):
+        """GET /api/backup_download：流式返回 tar.gz 备份附件，发送完清理临时文件"""
+        info = self.server.create_backup()
+        if not info.get("success"):
+            self.send_json(info)
+            return
+        fp = info["file"]
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/gzip")
+            self.send_header("Content-Disposition", 'attachment; filename="%s"' % info["name"])
+            self.send_header("Content-Length", str(info.get("size", 0)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            with open(fp, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            try:
+                os.remove(fp)
+            except Exception:
+                pass
 
     def read_body(self) -> bytes:
         """读取请求体（按 Content-Length）"""

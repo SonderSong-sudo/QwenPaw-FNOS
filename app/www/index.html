@@ -1365,6 +1365,16 @@
       <line x1="8" x2="16" y1="21" y2="21" />
       <line x1="12" x2="12" y1="17" y2="21" />
     </symbol>
+    <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" x2="12" y1="15" y2="3" />
+    </symbol>
+    <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4" />
+    </symbol>
   </svg>
 
   <div class="layout">
@@ -1634,6 +1644,42 @@
           <div id="pagerRow" class="pager-row" style="display:none">
             <div id="pagerTotal" class="pager-total"></div>
             <div id="pager" class="pager"></div>
+          </div>
+
+          <div class="card" style="margin-top:20px">
+            <div class="card-header">
+              <svg class="icon-sm" style="color:var(--ui-primary)">
+                <use href="#i-download" />
+              </svg>
+              备份与恢复
+            </div>
+            <div class="card-body">
+              <div style="display:flex;flex-direction:column;gap:16px">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+                  <div style="min-width:0">
+                    <div style="font-size:14px;font-weight:600">备份工作目录</div>
+                    <div class="form-hint" style="margin-top:2px">打包 QwenPaw 工作目录（.qwenpaw）与密钥目录（.qwenpaw.secret）为 tar.gz 下载到本地，可用于迁移或恢复</div>
+                  </div>
+                  <button class="btn btn-outline" id="btnBackupDownload" onclick="downloadBackup()">
+                    <svg class="icon-sm">
+                      <use href="#i-download" />
+                    </svg>下载备份
+                  </button>
+                </div>
+                <div style="height:1px;background:var(--ui-border)"></div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+                  <div style="min-width:0">
+                    <div style="font-size:14px;font-weight:600">重置 QwenPaw 认证</div>
+                    <div class="form-hint" style="margin-top:2px">删除登录认证文件并重启服务，下次进入 QwenPaw 将重新设置账号密码（忘记密码时使用）</div>
+                  </div>
+                  <button class="btn btn-error-soft" id="btnResetAuth" onclick="confirmResetAuth()">
+                    <svg class="icon-sm">
+                      <use href="#i-key" />
+                    </svg>重置认证
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -2600,6 +2646,63 @@
     }
     function confirmClearLogs() {
       showConfirm('清空日志', '确定要清空运行日志吗？此操作不可撤销。', clearLogsNow);
+    }
+    /* ================= 备份与恢复 ================= */
+    function downloadBackup() {
+      var btn = document.getElementById('btnBackupDownload');
+      var oldHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<svg class="icon-sm"><use href="#i-loader" /></svg>打包中...';
+      /* 不设超时：打包耗时随工作目录大小变化；后端失败时返回 JSON，按 Content-Type 区分 */
+      fetch('api/backup_download').then(function (r) {
+        var ct = r.headers.get('Content-Type') || '';
+        if (ct.indexOf('application/json') !== -1) {
+          return r.json().then(function (d) {
+            throw new Error((d && d.message) || '备份失败');
+          });
+        }
+        return r.blob();
+      }).then(function (blob) {
+        if (!blob || blob.size === 0) throw new Error('备份文件为空');
+        var a = document.createElement('a');
+        var ts = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+        a.href = URL.createObjectURL(blob);
+        a.download = 'qwenpaw-backup-' + ts + '.tar.gz';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () {
+          URL.revokeObjectURL(a.href);
+          a.remove();
+        }, 1000);
+        toast('备份已开始下载', 'success');
+      }).catch(function (e) {
+        toast('备份失败：' + (e && e.message ? e.message : '未知错误'), 'error');
+      }).finally(function () {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+      });
+    }
+    function confirmResetAuth() {
+      showConfirm('重置 QwenPaw 认证', '将删除登录认证文件并重启服务，下次进入 QwenPaw 需重新设置账号密码。确定继续吗？', resetAuthNow);
+    }
+    function resetAuthNow() {
+      var btn = document.getElementById('btnResetAuth');
+      var oldHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '重置中...';
+      apiPost('api/reset_auth').then(function (d) {
+        if (d && d.success) {
+          toast(d.message || '认证已重置', 'success');
+          fetchStatus();
+        } else {
+          toast('重置失败：' + ((d && d.message) || '未知错误'), 'error');
+        }
+      }).catch(function () {
+        toast('重置失败：请求超时或服务未响应', 'error');
+      }).finally(function () {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+      });
     }
     function filteredLogs() {
       var needle = state.filter.trim().toLowerCase();

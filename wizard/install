@@ -59,6 +59,66 @@
                         "message": "请确认密码"
                     }
                 ]
+            },
+            {
+                "type": "select",
+                "field": "qwenpaw_pypi_mirror",
+                "label": "PyPI 安装源",
+                "initValue": "tsinghua",
+                "options": [
+                    {
+                        "label": "PyPI 官方源 (国内用户推荐使用其他镜像源)",
+                        "value": "official"
+                    },
+                    {
+                        "label": "清华大学镜像源",
+                        "value": "tsinghua"
+                    },
+                    {
+                        "label": "阿里云镜像源",
+                        "value": "aliyun"
+                    },
+                    {
+                        "label": "中科大镜像源",
+                        "value": "ustc"
+                    }
+                ],
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请选择安装源"
+                    }
+                ]
+            },
+            {
+                "type": "select",
+                "field": "qwenpaw_log_level",
+                "label": "日志级别",
+                "initValue": "info",
+                "options": [
+                    {
+                        "label": "Info - 常规信息 (推荐)",
+                        "value": "info"
+                    },
+                    {
+                        "label": "Debug - 调试信息",
+                        "value": "debug"
+                    },
+                    {
+                        "label": "Warning - 警告信息",
+                        "value": "warning"
+                    },
+                    {
+                        "label": "Error - 错误信息",
+                        "value": "error"
+                    }
+                ],
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请选择日志级别"
+                    }
+                ]
             }
         ]
     }

@@ -1,0 +1,41 @@
+[
+    {
+        "stepTitle": "QwenPaw 升级",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "即将升级 QwenPaw 到新版本，数据与配置保留。建议升级前先在控制台「备份与恢复」下载备份。"
+            },
+            {
+                "type": "select",
+                "field": "qwenpaw_pypi_mirror",
+                "label": "PyPI 安装源",
+                "initValue": "tsinghua",
+                "options": [
+                    {
+                        "label": "PyPI 官方源 (国内用户推荐使用其他镜像源)",
+                        "value": "official"
+                    },
+                    {
+                        "label": "清华大学镜像源",
+                        "value": "tsinghua"
+                    },
+                    {
+                        "label": "阿里云镜像源",
+                        "value": "aliyun"
+                    },
+                    {
+                        "label": "中科大镜像源",
+                        "value": "ustc"
+                    }
+                ],
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请选择安装源"
+                    }
+                ]
+            }
+        ]
+    }
+]
