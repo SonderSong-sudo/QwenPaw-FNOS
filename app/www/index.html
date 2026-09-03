@@ -1468,6 +1468,24 @@
               <div class="card-body">
                 <div class="action-row">
                   <div class="action-info">
+                    <div class="action-ic" style="background:var(--ui-warning-soft);color:var(--ui-warning);">
+                      <svg class="icon-sm">
+                        <use href="#i-package" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="action-title">检查更新</div>
+                      <div class="action-sub" id="quickUpdateSub">当前内核版本 -</div>
+                    </div>
+                  </div>
+                  <button class="btn btn-outline btn-xs" id="btnQuickCheckUpdate" onclick="checkUpdate()">
+                    <svg class="icon-sm">
+                      <use href="#i-search" />
+                    </svg>检查
+                  </button>
+                </div>
+                <div class="action-row">
+                  <div class="action-info">
                     <div class="action-ic" style="background:var(--ui-primary-soft);color:var(--ui-primary);">
                       <svg class="icon-sm">
                         <use href="#i-external-link" />
@@ -1500,24 +1518,6 @@
                     <svg class="icon-sm">
                       <use href="#i-arrow-right" />
                     </svg>查看
-                  </button>
-                </div>
-                <div class="action-row">
-                  <div class="action-info">
-                    <div class="action-ic" style="background:var(--ui-warning-soft);color:var(--ui-warning);">
-                      <svg class="icon-sm">
-                        <use href="#i-package" />
-                      </svg>
-                    </div>
-                    <div>
-                      <div class="action-title">检查更新</div>
-                      <div class="action-sub" id="quickUpdateSub">当前内核版本 -</div>
-                    </div>
-                  </div>
-                  <button class="btn btn-outline btn-xs" id="btnQuickCheckUpdate" onclick="checkUpdate()">
-                    <svg class="icon-sm">
-                      <use href="#i-search" />
-                    </svg>检查
                   </button>
                 </div>
                 <div class="action-row" style="margin-bottom:0">
