@@ -1478,7 +1478,7 @@
                       <div class="action-sub" id="quickUpdateSub">当前内核版本 -</div>
                     </div>
                   </div>
-                  <button class="btn btn-outline btn-xs" id="btnQuickCheckUpdate" onclick="checkUpdate()">
+                  <button class="btn btn-outline btn-xs" id="btnQuickCheckUpdate" onclick="checkUpdate(1)">
                     <svg class="icon-sm">
                       <use href="#i-search" />
                     </svg>检查
@@ -1502,7 +1502,7 @@
                     </svg>打开
                   </button>
                 </div>
-                <div class="action-row">
+                <div class="action-row" style="margin-bottom:0">
                   <div class="action-info">
                     <div class="action-ic" style="background:var(--ui-info-soft);color:var(--ui-info);">
                       <svg class="icon-sm">
@@ -1518,24 +1518,6 @@
                     <svg class="icon-sm">
                       <use href="#i-arrow-right" />
                     </svg>查看
-                  </button>
-                </div>
-                <div class="action-row" style="margin-bottom:0">
-                  <div class="action-info">
-                    <div class="action-ic" style="background:var(--ui-primary-soft);color:var(--ui-primary);">
-                      <svg class="icon-sm">
-                        <use href="#i-rotate-cw" />
-                      </svg>
-                    </div>
-                    <div>
-                      <div class="action-title">应用更新</div>
-                      <div class="action-sub" id="quickUpgradeSub">检测到新版本后直接升级内核并重启</div>
-                    </div>
-                  </div>
-                  <button class="btn btn-primary btn-xs" id="btnQuickUpgrade" onclick="doUpgrade()">
-                    <svg class="icon-sm">
-                      <use href="#i-rotate-cw" />
-                    </svg>更新
                   </button>
                 </div>
                 <div id="quickUpdateResult" style="margin-top:10px"></div>
@@ -2288,21 +2270,38 @@
       var sw = document.getElementById('npSwitch');
       sw.className = 'switch' + (sw.className.indexOf('on') === -1 ? ' on' : '');
     }
-    function checkUpdate(force) {
+    /* 检查/更新按钮状态机：check=检查(outline) update=更新(primary) busy/upgrading=进行中 */
+    function setCheckBtn(mode) {
       var btn = document.getElementById('btnQuickCheckUpdate');
-      var oldHtml = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>检查中';
-      return apiGet('api/check_update' + (force ? '?force=1' : '')).then(function (d) {
+      if (!btn) return;
+      if (mode === 'busy') {
+        btn.disabled = true;
+        btn.className = 'btn btn-outline btn-xs';
+        btn.innerHTML = '<span class="spinner"></span>检查中';
+      } else if (mode === 'upgrading') {
+        btn.disabled = true;
+        btn.className = 'btn btn-primary btn-xs';
+        btn.innerHTML = '<svg class="icon-sm"><use href="#i-rotate-cw"/></svg>升级中';
+      } else if (mode === 'update') {
+        btn.disabled = false;
+        btn.className = 'btn btn-primary btn-xs';
+        btn.onclick = doUpgrade;
+        btn.innerHTML = '<svg class="icon-sm"><use href="#i-rotate-cw"/></svg>更新';
+      } else {
+        btn.disabled = false;
+        btn.className = 'btn btn-outline btn-xs';
+        btn.onclick = function () { checkUpdate(1); };
+        btn.innerHTML = '<svg class="icon-sm"><use href="#i-search"/></svg>检查';
+      }
+    }
+    function checkUpdate(force) {
+      setCheckBtn('busy');
+      return apiGet('api/check_update' + (force === false ? '' : '?force=1')).then(function (d) {
         renderUpdateResult(d);
-        if (d && d.runtime_update_available && !upgradeBusy) {
-          setTimeout(doUpgrade, 300); // 发现新版本后自动开始升级，无需再点「应用更新」
-        }
+        setCheckBtn(d && d.runtime_update_available ? 'update' : 'check');
       }).catch(function () {
         renderUpdateResult(null);
-      }).finally(function () {
-        btn.disabled = false;
-        btn.innerHTML = oldHtml;
+        setCheckBtn('check');
       });
     }
     function renderUpdateResult(d) {
@@ -2315,7 +2314,7 @@
       var html = '';
       if (d.runtime_update_available) {
         html += '<div class="update-result warning"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
-          '<span>发现 QwenPaw 内核新版本 v' + esc(d.runtime_latest_version) + '（当前 v' + esc(d.runtime_version) + '），正在自动升级，升级完成后自动重启服务…</span></div>';
+          '<span>发现 QwenPaw 内核新版本 v' + esc(d.runtime_latest_version) + '（当前 v' + esc(d.runtime_version) + '），点击「更新」开始升级，升级完成后自动重启服务</span></div>';
       } else if (d.runtime_latest_version === null || d.runtime_latest_version === undefined) {
         html += '<div class="update-result error"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
           '<span>内核版本检查失败（当前 v' + esc(d.runtime_version) + '），请检查网络或在「应用设置」中配置代理</span></div>';
@@ -2323,103 +2322,89 @@
         html += '<div class="update-result success"><svg class="icon-sm"><use href="#i-check"/></svg>' +
           '<span>当前版本 v' + esc(d.runtime_version) + ' 是最新版</span></div>';
       }
-      if (d.shell_update_available && d.release_url) {
-        html += '<div class="form-hint" style="margin-top:8px">应用框架有新版 v' + esc(d.latest_version) +
-          '（当前 v' + esc(d.current_version) + '），可在 fnOS 应用中心安装：<a href="' + esc(d.release_url) +
-          '" target="_blank" rel="noopener">发布页</a></div>';
-      }
       box.innerHTML = html;
-    }
-    function setQuickUpgradeSub(text) {
-      var el = document.getElementById('quickUpgradeSub');
-      if (el) el.textContent = text;
     }
     function renderUpgradeLog(logs, running) {
       var box = document.getElementById('quickUpgradeLog');
       if (!box) return;
+      /* 保持用户滚动位置：贴底时跟随最新日志，上翻查看时停在原地 */
+      var pre = box.querySelector('pre');
+      var stick = true, prevTop = 0;
+      if (pre) {
+        prevTop = pre.scrollTop;
+        stick = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 24;
+      }
       var lines = (logs || []).slice(-8).map(function (l) { return String(l.message || ''); });
       var body = lines.length ? lines.join('\n') : (running ? '正在准备升级…' : '暂无升级日志');
       box.innerHTML = '<details' + (running ? ' open' : '') + ' style="margin-top:6px">' +
         '<summary style="cursor:pointer;font-size:12px;opacity:.75">升级日志' + (running ? '（进行中）' : '') + '</summary>' +
         '<pre style="margin:6px 0 0;padding:8px 10px;background:rgba(127,127,127,.08);border-radius:8px;font-size:11px;line-height:1.55;white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto">' +
         esc(body) + '</pre></details>';
+      var np = box.querySelector('pre');
+      if (np) np.scrollTop = stick ? np.scrollHeight : prevTop;
     }
     var upgradeBusy = false;
     function doUpgrade() {
       if (upgradeBusy) return;
-      var btn = document.getElementById('btnQuickUpgrade');
-      var oldHtml = btn.innerHTML;
       upgradeBusy = true;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>升级中';
-      setQuickUpgradeSub('正在请求升级…');
+      setCheckBtn('upgrading');
       apiPost('api/action', { action: 'upgrade' }).then(function (d) {
         if (!d || !d.success) {
           toast((d && d.message) || '无法开始升级', 'error');
-          setQuickUpgradeSub((d && d.message) || '无法开始升级');
           upgradeBusy = false;
-          btn.disabled = false;
-          btn.innerHTML = oldHtml;
+          setCheckBtn('update');
           return;
         }
         toast('内核升级已开始，升级期间请勿关闭页面', 'success');
         renderUpgradeLog([], true);
-        pollUpgrade(0, btn, oldHtml);
+        pollUpgrade(0);
       }).catch(function () {
         toast('升级请求失败', 'error');
         upgradeBusy = false;
-        btn.disabled = false;
-        btn.innerHTML = oldHtml;
+        setCheckBtn('update');
       });
     }
-    function pollUpgrade(miss, btn, oldHtml) {
+    function pollUpgrade(miss) {
       apiGet('api/upgrade_status').then(function (d) {
         if (d && d.upgrading) {
-          setQuickUpgradeSub('正在升级内核（下载并安装新版），请勿关闭页面…');
           apiGet('api/upgrade_logs').then(function (ld) {
             renderUpgradeLog(ld && ld.logs ? ld.logs : [], true);
           }).catch(function () { });
-          setTimeout(function () { pollUpgrade(0, btn, oldHtml); }, 2500);
+          setTimeout(function () { pollUpgrade(0); }, 2500);
           return;
         }
         if (d && d.finished) {
-          finishUpgrade(d, btn, oldHtml);
+          finishUpgrade(d);
           return;
         }
         if (miss < 8) {
-          setTimeout(function () { pollUpgrade(miss + 1, btn, oldHtml); }, 2500);
+          setTimeout(function () { pollUpgrade(miss + 1); }, 2500);
           return;
         }
         upgradeBusy = false;
-        btn.disabled = false;
-        btn.innerHTML = oldHtml;
-        setQuickUpgradeSub('升级状态未知，可刷新页面查看当前版本');
+        setCheckBtn('check');
       }).catch(function () {
         if (miss < 8) {
-          setTimeout(function () { pollUpgrade(miss + 1, btn, oldHtml); }, 3000);
+          setTimeout(function () { pollUpgrade(miss + 1); }, 3000);
           return;
         }
         upgradeBusy = false;
-        btn.disabled = false;
-        btn.innerHTML = oldHtml;
-        setQuickUpgradeSub('升级状态查询失败，可稍后刷新页面查看版本');
+        setCheckBtn('check');
       });
     }
-    function finishUpgrade(d, btn, oldHtml) {
+    function finishUpgrade(d) {
       upgradeBusy = false;
-      btn.disabled = false;
-      btn.innerHTML = oldHtml;
       apiGet('api/upgrade_logs').then(function (ld) {
         renderUpgradeLog(ld && ld.logs ? ld.logs : [], false);
       }).catch(function () { });
       if (d.exit_code === 0) {
         toast(d.message || 'QwenPaw 内核升级完成，服务已重启', 'success');
-        setQuickUpgradeSub('内核已升级至 v' + (d.new_version || '最新') + '，服务已重启');
         fetchStatus();
-        checkUpdate(true);
+        /* 服务已重启，延迟刷新整页，避免旧页面状态残留（侧边栏点击右侧空白等） */
+        setTimeout(function () { location.reload(); }, 3500);
       } else {
         toast(d.message || 'QwenPaw 内核升级失败，请查看升级日志', 'error');
-        setQuickUpgradeSub('内核升级失败，请查看升级日志后重试');
+        setCheckBtn('update');
       }
     }
     function saveNetworkProxy() {

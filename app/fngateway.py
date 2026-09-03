@@ -1210,16 +1210,18 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
         if QWENPAW_BASENAME_ANCHOR in js:
             return js.replace(QWENPAW_BASENAME_ANCHOR, QWENPAW_BASENAME_PATCH, 1).encode("utf-8", "replace")
 
-        # 2) 兜底：上游换构建导致 minified 标识符变化时，用正则泛化匹配
+        # 2) 兜底：上游换构建导致 minified 标识符变化时，用泛化正则匹配（函数名/形参/
+        #    前缀字面量/常量名全通配，见 QWENPAW_BASENAME_RE 注释），上游任意一版均可命中。
         m = QWENPAW_BASENAME_RE.search(js)
         if m:
-            fn, const = m.group(1), m.group(2)
+            fn, param, prefix, const = m.group(1), m.group(2), m.group(3), m.group(4)
             patched = (
-                'function %s(i){var b=window.__QWENPAW_BASENAME__;'
-                'if(b&&i.indexOf(b)===0)return b;'
-                'return/^\\/console(?:\\/|$)/.test(i)?%s:void 0}' % (fn, const)
+                'function %s(%s){var b=window.__QWENPAW_BASENAME__;'
+                'if(b&&%s.indexOf(b)===0)return b;'
+                'return/^%s(?:\\/|$)/.test(%s)?%s:void 0}'
+                % (fn, param, param, prefix, param, const)
             )
-            logger.info("QwenPaw basename 补丁：精确 anchor 未命中，改用正则兜底 (函数 %s, 常量 %s)", fn, const)
+            logger.info("QwenPaw basename 补丁：精确 anchor 未命中，改用泛化正则 (fn=%s, param=%s, prefix=%s, const=%s)", fn, param, prefix, const)
             # 必须 encode 回 bytes：调用方按字节流处理（Content-Length / wfile.write）
             return (js[:m.start()] + patched + js[m.end():]).encode("utf-8", "replace")
 
@@ -1335,13 +1337,17 @@ QWENPAW_BASENAME_PATCH = (
     r'if(b&&i.indexOf(b)===0)return b;'
     r'return/^\/console(?:\/|$)/.test(i)?c8e:void 0}'
 )
-# 兜底正则：上游重新构建后函数名(n6)/常量名(c8e)这类 minified 标识符会变，
-# 精确 anchor 会失配。这里泛化两个标识符，保证换 hash/换构建仍能命中。
+# 兜底正则：上游重新构建后 minified 标识符会变，必须全部泛化，做到"上游任意一版都能命中"，
+# 不能他们每改一版构建我们就追一次锚点。实测产物形态（两个版本同构，仅标识符不同）：
+#   v2.1.0: function n6(i){return/^\/console(?:\/|$)/.test(i)?c8e:void 0}
+#   v2.2.0: function Po(e){return/^\/console(?:\/|$)/.test(e)?uv:void 0}
+# 因此捕获组覆盖：函数名 / 形参名（反向引用保证 .test(形参) 一致）/
+# 前缀字面量（\/ + 路径段，未来上游若换 "/console" 为其它前缀也能命中）/ 返回常量名。
 # 注意：被匹配的目标是一段 JS 源码文本，里面的 (?: \/ | $ ) 都是**字面字符**，
-# 必须逐个转义（\| 和 \$）；若把 "|" 留作 alternation 运算符，整条正则会被切成
-# 两个分支，常量名捕获组将落到分支外而永远为 None。
+# 必须逐个转义（\| 和 \$）；若把 "|" 留作 alternation 运算符，整条正则会被切开，
+# 常量名捕获组将落到分支外而永远为 None。
 QWENPAW_BASENAME_RE = re.compile(
-    r'function\s+(\w+)\(i\)\{return/\^\\/console\(\?:\\/\|\$\)/\.test\(i\)\?(\w+):void\s*0\}'
+    r'function\s+(\w+)\((\w+)\)\{return/\^(\\/[\w.-]+)\(\?:\\/\|\$\)/\.test\(\2\)\?(\w+):void\s*0\}'
 )
 # 同一进程内只告警一次，避免每个 JS 请求都刷日志
 _QWENPAW_PATCH_WARNED = False
