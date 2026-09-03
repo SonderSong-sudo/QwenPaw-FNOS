@@ -2030,8 +2030,14 @@
     }
 
     /* ================= API ================= */
+    /* 统一超时：防止接口挂起导致 state.busy / 按钮禁用态永久卡死（停止服务最长约 17s，取 40s 余量） */
+    function withTimeout(p, ms) {
+      return Promise.race([p, new Promise(function (_, rej) {
+        setTimeout(function () { rej(new Error('请求超时')); }, ms || 40000);
+      })]);
+    }
     function apiGet(path) {
-      return fetch(path, { headers: { 'Accept': 'application/json' } }).then(function (r) { return r.json(); });
+      return withTimeout(fetch(path, { headers: { 'Accept': 'application/json' } }).then(function (r) { return r.json(); }));
     }
     function apiPost(path, body) {
       var opts = { method: 'POST' };
@@ -2039,7 +2045,7 @@
         opts.headers = { 'Content-Type': 'application/json' };
         opts.body = JSON.stringify(body);
       }
-      return fetch(path, opts).then(function (r) { return r.json(); });
+      return withTimeout(fetch(path, opts).then(function (r) { return r.json(); }));
     }
 
     /* ================= 状态 ================= */
@@ -2055,7 +2061,7 @@
         renderStatus();
         if (!statusBaseline) {
           statusBaseline = true;
-        } else if (!prev && state.running) {
+        } else if (!prev && state.running && !upgradeBusy) {
           topToast('启动成功', 'success');
         }
       }).catch(function () { });
@@ -2121,28 +2127,40 @@
         authChip.className = 'auth-chip off';
       }
 
-      /* 运行中 → 打开按钮；未运行 → 启动按钮 */
-      if (state.running) {
-        btnOpen.disabled = false;
-        btnOpen.className = 'btn btn-danger btn-xs';
-        btnOpen.innerHTML = '<svg class="icon-sm"><use href="#i-external-link"/></svg>打开';
-        btnOpen.onclick = openQwenPaw;
-      } else if (upgradeBusy) {
-        btnOpen.disabled = true;
-        btnOpen.className = 'btn btn-primary btn-xs';
-        btnOpen.innerHTML = '<svg class="icon-sm"><use href="#i-play"/></svg>启动';
-        btnOpen.onclick = function () { };
-      } else {
-        btnOpen.disabled = false;
-        btnOpen.className = 'btn btn-primary btn-xs';
-        btnOpen.innerHTML = '<svg class="icon-sm"><use href="#i-play"/></svg>启动';
-        btnOpen.onclick = function () { doAction('start'); };
+      /* 运行中 → 打开按钮；未运行 → 启动按钮（升级中禁用）。状态不变时跳过重建，避免轮询打断点击 */
+      var openKey = state.running ? 'open' : (upgradeBusy ? 'busy' : 'start');
+      if (openKey !== renderStatus._openKey) {
+        renderStatus._openKey = openKey;
+        if (state.running) {
+          btnOpen.disabled = false;
+          btnOpen.className = 'btn btn-danger btn-xs';
+          btnOpen.innerHTML = '<svg class="icon-sm"><use href="#i-external-link"/></svg>打开';
+          btnOpen.onclick = openQwenPaw;
+        } else if (upgradeBusy) {
+          btnOpen.disabled = true;
+          btnOpen.className = 'btn btn-primary btn-xs';
+          btnOpen.innerHTML = '<svg class="icon-sm"><use href="#i-play"/></svg>启动';
+          btnOpen.onclick = function () { };
+        } else {
+          btnOpen.disabled = false;
+          btnOpen.className = 'btn btn-primary btn-xs';
+          btnOpen.innerHTML = '<svg class="icon-sm"><use href="#i-play"/></svg>启动';
+          btnOpen.onclick = function () { doAction('start'); };
+        }
       }
       renderActions(actions);
     }
     function renderActions(actions) {
+      /* 升级中固定显示升级占位，避免诱导用户在升级中途启动服务 */
+      var key = state.busy ? 'busy' : (upgradeBusy ? 'upgrading' : (state.running ? 'running' : 'stopped'));
+      if (key === renderActions._key) return;
+      renderActions._key = key;
       if (state.busy) {
         actions.innerHTML = '<button class="btn btn-outline btn-lg" disabled><span class="spinner"></span>处理中...</button>';
+        return;
+      }
+      if (upgradeBusy) {
+        actions.innerHTML = '<button class="btn btn-outline btn-lg" disabled><span class="spinner"></span>内核升级中...</button>';
         return;
       }
       if (state.running) {
@@ -2192,7 +2210,11 @@
       }
     }
     function openQwenPaw() {
-      if (!state.running) return;
+      if (!state.running) {
+        toast('QwenPaw 服务未运行，请先启动服务', 'warning');
+        fetchStatus(); /* 顺手校正按钮态 */
+        return;
+      }
       var url;
       if (gateway.mode === 'port' && gateway.proxyPort) {
         url = 'http://' + window.location.hostname + ':' + gateway.proxyPort + '/';
@@ -2410,8 +2432,8 @@
         }
         toast('内核升级已开始，升级期间请勿关闭页面', 'success');
         topToast('正在更新，升级期间请勿关闭页面…', 'success');
-        var bo = document.getElementById('btnOpen');
-        if (bo) bo.disabled = true; /* 升级期间禁用 启动/打开 按钮 */
+        renderStatus._openKey = null; /* 强制刷新 打开/启动 按钮态（升级中禁用） */
+        renderStatus();
         renderUpgradeLog([], true);
         pollUpgrade(0);
       }).catch(function () {
@@ -2440,6 +2462,7 @@
         }
         upgradeBusy = false;
         setCheckBtn('check');
+        fetchStatus(); /* 放弃等待也刷新状态，确保 打开/启动 按钮恢复可点 */
       }).catch(function () {
         if (miss < 8) {
           setTimeout(function () { pollUpgrade(miss + 1); }, 3000);
@@ -2447,6 +2470,7 @@
         }
         upgradeBusy = false;
         setCheckBtn('check');
+        fetchStatus();
       });
     }
     function finishUpgrade(d) {
@@ -2464,6 +2488,7 @@
         topToast('内核升级失败，请查看升级日志', 'error');
         toast(d.message || 'QwenPaw 内核升级失败，请查看升级日志', 'error');
         setCheckBtn('update');
+        fetchStatus(); /* 升级失败服务可能停在停止态，必须刷新按钮态 */
       }
     }
     function saveNetworkProxy() {
@@ -2699,6 +2724,10 @@
     fetchConfig();
     fetchStatus();
     loadGatewayConfig(false);
+    /* 5s 轮询状态自愈：任何按钮禁用态错乱（升级中断、请求异常等）最多 5s 自动恢复 */
+    setInterval(function () {
+      if (!state.busy) fetchStatus();
+    }, 5000);
   </script>
 </body>
 

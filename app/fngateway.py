@@ -55,7 +55,7 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 STATUS_CACHE_TTL = 60
 
 # 应用安装包版本（与 manifest 的 version 保持同步；升级时同步更新）
-APP_VERSION = "26.8.47"
+APP_VERSION = "26.8.48"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
 # 应用框架更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
