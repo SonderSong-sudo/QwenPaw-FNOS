@@ -1996,6 +1996,29 @@
       setTimeout(function () { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 2600);
       setTimeout(function () { el.remove(); }, 3000);
     }
+    /* 顶部横幅提示（默认 20s 自动消失）；重复调用同一内容只重置计时不闪烁 */
+    var topToastTimer = null, topToastLast = '';
+    function topToast(msg, type, ttl) {
+      var el = document.getElementById('topToast');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'topToast';
+        el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9999;' +
+          'padding:10px 18px;border-radius:10px;font-size:13px;line-height:1.5;color:#fff;' +
+          'box-shadow:0 6px 24px rgba(0,0,0,.25);transition:opacity .3s;max-width:82%;text-align:center;display:none;';
+        document.body.appendChild(el);
+      }
+      if (topToastLast !== msg) { el.textContent = msg; topToastLast = msg; }
+      el.style.background = type === 'error' ? 'rgba(220,38,38,.95)'
+        : (type === 'warning' ? 'rgba(217,119,6,.95)' : 'rgba(22,163,74,.95)');
+      el.style.display = 'block';
+      el.style.opacity = '1';
+      clearTimeout(topToastTimer);
+      topToastTimer = setTimeout(function () {
+        el.style.opacity = '0';
+        setTimeout(function () { el.style.display = 'none'; topToastLast = ''; }, 300);
+      }, ttl || 20000);
+    }
     function fmtRuntime(startAt) {
       if (!state.running || typeof startAt !== 'number' || !isFinite(startAt) || startAt <= 0) return '-';
       var s = Math.max(0, Math.floor(Date.now() / 1000 - startAt));
@@ -2020,7 +2043,9 @@
     }
 
     /* ================= 状态 ================= */
+    var statusBaseline = false; /* 首次拉取只记基线，之后 服务停止→运行 转变时提示启动成功 */
     function fetchStatus() {
+      var prev = state.running;
       return apiGet('api/status').then(function (d) {
         if (!d || !d.success) return;
         state.running = !!d.running;
@@ -2028,6 +2053,11 @@
         state.startAt = d.startAt || null;
         state.version = d.version || '';
         renderStatus();
+        if (!statusBaseline) {
+          statusBaseline = true;
+        } else if (!prev && state.running) {
+          topToast('启动成功', 'success');
+        }
       }).catch(function () { });
     }
     function fetchConfig() {
@@ -2091,7 +2121,23 @@
         authChip.className = 'auth-chip off';
       }
 
-      btnOpen.disabled = !state.running;
+      /* 运行中 → 打开按钮；未运行 → 启动按钮 */
+      if (state.running) {
+        btnOpen.disabled = false;
+        btnOpen.className = 'btn btn-danger btn-xs';
+        btnOpen.innerHTML = '<svg class="icon-sm"><use href="#i-external-link"/></svg>打开';
+        btnOpen.onclick = openQwenPaw;
+      } else if (upgradeBusy) {
+        btnOpen.disabled = true;
+        btnOpen.className = 'btn btn-primary btn-xs';
+        btnOpen.innerHTML = '<svg class="icon-sm"><use href="#i-play"/></svg>启动';
+        btnOpen.onclick = function () { };
+      } else {
+        btnOpen.disabled = false;
+        btnOpen.className = 'btn btn-primary btn-xs';
+        btnOpen.innerHTML = '<svg class="icon-sm"><use href="#i-play"/></svg>启动';
+        btnOpen.onclick = function () { doAction('start'); };
+      }
       renderActions(actions);
     }
     function renderActions(actions) {
@@ -2299,13 +2345,16 @@
       return apiGet('api/check_update' + (force === false ? '' : '?force=1')).then(function (d) {
         renderUpdateResult(d);
         setCheckBtn(d && d.runtime_update_available ? 'update' : 'check');
-        if (d && d.runtime_update_available && !upgradeBusy) {
-          /* 发现新版本后自动开始升级，无需再点「更新」；稍作停顿让用户看到提示 */
-          setTimeout(doUpgrade, 800);
+        if (d && d.runtime_update_available) {
+          topToast('发现内核新版本 v' + d.runtime_latest_version + '（当前 v' + d.runtime_version + '），正在自动升级…', 'warning');
+          if (!upgradeBusy) setTimeout(doUpgrade, 800);
+        } else if (d) {
+          topToast('当前版本 v' + d.runtime_version + ' 是最新版', 'success');
         }
       }).catch(function () {
         renderUpdateResult(null);
         setCheckBtn('check');
+        topToast('检查更新失败，请检查网络或配置网络代理', 'error');
       });
     }
     function renderUpdateResult(d) {
@@ -2360,6 +2409,9 @@
           return;
         }
         toast('内核升级已开始，升级期间请勿关闭页面', 'success');
+        topToast('正在更新，升级期间请勿关闭页面…', 'success');
+        var bo = document.getElementById('btnOpen');
+        if (bo) bo.disabled = true; /* 升级期间禁用 启动/打开 按钮 */
         renderUpgradeLog([], true);
         pollUpgrade(0);
       }).catch(function () {
@@ -2371,6 +2423,7 @@
     function pollUpgrade(miss) {
       apiGet('api/upgrade_status').then(function (d) {
         if (d && d.upgrading) {
+          topToast('正在更新，升级期间请勿关闭页面…', 'success'); /* 保持顶部提示常驻 */
           apiGet('api/upgrade_logs').then(function (ld) {
             renderUpgradeLog(ld && ld.logs ? ld.logs : [], true);
           }).catch(function () { });
@@ -2402,11 +2455,13 @@
         renderUpgradeLog(ld && ld.logs ? ld.logs : [], false);
       }).catch(function () { });
       if (d.exit_code === 0) {
+        topToast('内核升级完成，服务已重启', 'success');
         toast(d.message || 'QwenPaw 内核升级完成，服务已重启', 'success');
         fetchStatus();
         /* 服务已重启，延迟刷新整页，避免旧页面状态残留（侧边栏点击右侧空白等） */
         setTimeout(function () { location.reload(); }, 3500);
       } else {
+        topToast('内核升级失败，请查看升级日志', 'error');
         toast(d.message || 'QwenPaw 内核升级失败，请查看升级日志', 'error');
         setCheckBtn('update');
       }

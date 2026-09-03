@@ -652,20 +652,18 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
     def _build_upgrade_script(self, venv_python: str, pid_file: str, log_file: str,
                               up_log: str, up_pid: str, up_result: str, start_cmd: str) -> str:
-        """构造后台升级脚本：pip 升级内核 -> 成功则重启服务（自包含，页面关闭也不中断）"""
+        """构造后台升级脚本：先停服务 -> pip 升级内核 -> 再启动服务（自包含，页面关闭也不中断）。
+
+        顺序很重要：必须先停服务再 pip。曾在升级中 pip 直接替换 venv 里运行中内核的
+        site-packages 文件，导致运行中的 QwenPaw 进程 import 失败当场崩溃（用户反馈
+        「第一次升级闪退了一次」）。先停再升消除该竞态。
+        """
         s = ""
         s += ': > "' + up_log + '"\n'
         s += 'echo "=== QwenPaw 内核升级开始 ===" >> "' + up_log + '"\n'
         s += 'echo "时间: $(date \'+%Y-%m-%d %H:%M:%S\')" >> "' + up_log + '"\n'
         s += 'echo "" >> "' + up_log + '"\n'
-        s += 'echo "$ PYTHONUNBUFFERED=1 ' + venv_python + ' -m pip install --upgrade qwenpaw" >> "' + up_log + '"\n'
-        s += ('PYTHONUNBUFFERED=1 "' + venv_python + '" -m pip install --upgrade --no-input qwenpaw'
-              ' >> "' + up_log + '" 2>&1\n')
-        s += 'rc=$?\n'
-        s += 'echo "" >> "' + up_log + '"\n'
-        s += 'if [ $rc -eq 0 ]; then\n'
-        s += '  echo "=== 内核升级成功 ===" >> "' + up_log + '"\n'
-        s += '  echo "正在重启 QwenPaw 服务..." >> "' + up_log + '"\n'
+        s += 'echo "正在停止 QwenPaw 服务（先停再升，避免 pip 替换运行中文件导致进程崩溃）..." >> "' + up_log + '"\n'
         s += '  if [ -f "' + pid_file + '" ]; then\n'
         s += '    old_pid=$(head -n 1 "' + pid_file + '" | tr -d \'[:space:]\')\n'
         s += '    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then\n'
@@ -682,12 +680,20 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         s += '    rm -f "' + pid_file + '"\n'
         s += '  fi\n'
         s += '  sleep 1\n'
+        s += 'echo "$ PYTHONUNBUFFERED=1 ' + venv_python + ' -m pip install --upgrade qwenpaw" >> "' + up_log + '"\n'
+        s += ('PYTHONUNBUFFERED=1 "' + venv_python + '" -m pip install --upgrade --no-input qwenpaw'
+              ' >> "' + up_log + '" 2>&1\n')
+        s += 'rc=$?\n'
+        s += 'echo "" >> "' + up_log + '"\n'
+        s += 'if [ $rc -eq 0 ]; then\n'
+        s += '  echo "=== 内核升级成功 ===" >> "' + up_log + '"\n'
+        s += 'else\n'
+        s += '  echo "=== 内核升级失败 (exit code: $rc)，尝试以当前文件重启服务 ===" >> "' + up_log + '"\n'
+        s += 'fi\n'
+        s += 'echo "正在启动 QwenPaw 服务..." >> "' + up_log + '"\n'
         s += '  bash -c \'' + start_cmd + '\' >> "' + log_file + '" 2>&1 &\n'
         s += '  echo $! > "' + pid_file + '"\n'
-        s += '  echo "QwenPaw 已重启" >> "' + up_log + '"\n'
-        s += 'else\n'
-        s += '  echo "=== 内核升级失败 (exit code: $rc) ===" >> "' + up_log + '"\n'
-        s += 'fi\n'
+        s += '  echo "QwenPaw 已启动" >> "' + up_log + '"\n'
         s += 'echo "$rc" > "' + up_result + '"\n'
         s += 'rm -f "' + up_pid + '"\n'
         return s
