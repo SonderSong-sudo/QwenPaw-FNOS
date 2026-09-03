@@ -28,7 +28,7 @@
 - **QwenPaw 控制台** — 带侧边栏的服务管理控制台：
   - **服务状态** — 实时显示运行/停止状态、PID、运行时长、版本、端口、认证状态
   - **服务控制** — 一键启动 / 停止 / 重启 QwenPaw 服务，支持打开完整 Web 界面
-  - **快速操作** — 打开 QwenPaw 完整界面 / 跳转运行日志 / 检查更新 + 应用更新（检查更新为双层版本检查：QwenPaw 内核查 PyPI、应用框架查 GitHub Releases，支持经网络代理检查；「应用更新」检测到内核新版本后直接在 venv 内 `pip install --upgrade qwenpaw` 并自动重启服务，升级过程实时日志可查，参考 [com.dustinky.qwenpaw](https://github.com/dustink66/com.dustinky.qwenpaw) 控制台升级模块；应用框架新版 `.fpk` 仍经 fnOS 应用中心安装，数据与配置保留）
+  - **快速操作** — 检查更新 / 打开 QwenPaw 完整界面 / 跳转运行日志 / 应用更新（检查更新为双层版本检查：QwenPaw 内核查 PyPI、应用框架查 GitHub Releases，支持经网络代理检查；内核检测到新版本后**自动开始升级**，无需再点「应用更新」，升级完成自动重启服务并实时展示升级日志；「应用更新」按钮保留为手动触发入口；应用框架新版 `.fpk` 仍经 fnOS 应用中心安装，数据与配置保留，参考 [com.dustinky.qwenpaw](https://github.com/dustink66/com.dustinky.qwenpaw) 控制台升级模块）
   - **运行日志** — 自动刷新、内容筛选、分页查看（最近 500 条）、一键清空
   - **飞牛统一网关**（侧边栏底部）— 单端口 HTTP/HTTPS 自适应反向代理：
     - **反向代理端口** — 默认 `2280`，同一端口自动识别 HTTP（局域网明文）与 HTTPS（自签名证书，首次访问需手动信任）请求并转发到 QwenPaw 内部服务

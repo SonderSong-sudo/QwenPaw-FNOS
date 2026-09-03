@@ -2295,6 +2295,9 @@
       btn.innerHTML = '<span class="spinner"></span>检查中';
       return apiGet('api/check_update' + (force ? '?force=1' : '')).then(function (d) {
         renderUpdateResult(d);
+        if (d && d.runtime_update_available && !upgradeBusy) {
+          setTimeout(doUpgrade, 300); // 发现新版本后自动开始升级，无需再点「应用更新」
+        }
       }).catch(function () {
         renderUpdateResult(null);
       }).finally(function () {
@@ -2312,13 +2315,13 @@
       var html = '';
       if (d.runtime_update_available) {
         html += '<div class="update-result warning"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
-          '<span>发现 QwenPaw 内核新版本 v' + esc(d.runtime_latest_version) + '（当前 v' + esc(d.runtime_version) + '），点击「更新」直接升级</span></div>';
+          '<span>发现 QwenPaw 内核新版本 v' + esc(d.runtime_latest_version) + '（当前 v' + esc(d.runtime_version) + '），正在自动升级，升级完成后自动重启服务…</span></div>';
       } else if (d.runtime_latest_version === null || d.runtime_latest_version === undefined) {
         html += '<div class="update-result error"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
           '<span>内核版本检查失败（当前 v' + esc(d.runtime_version) + '），请检查网络或在「应用设置」中配置代理</span></div>';
       } else {
         html += '<div class="update-result success"><svg class="icon-sm"><use href="#i-check"/></svg>' +
-          '<span>QwenPaw 内核已是最新版本（v' + esc(d.runtime_version) + '）</span></div>';
+          '<span>当前版本 v' + esc(d.runtime_version) + ' 是最新版</span></div>';
       }
       if (d.shell_update_available && d.release_url) {
         html += '<div class="form-hint" style="margin-top:8px">应用框架有新版 v' + esc(d.latest_version) +
