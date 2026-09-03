@@ -16,6 +16,10 @@ QwenPaw 飞牛控制台网关
    - POST /api/stop        -> 停止 QwenPaw 服务
    - POST /api/restart     -> 重启 QwenPaw 服务
    - POST /api/clear_logs  -> 清空运行日志
+   - GET  /api/check_update    -> 双层版本检查（内核 PyPI / 应用框架 GitHub Releases）
+   - POST /api/action {upgrade}-> 后台 pip 升级内核并自动重启服务
+   - GET  /api/upgrade_status  -> 升级进行中状态（结束后返回 exit code）
+   - GET  /api/upgrade_logs    -> 升级过程日志
 3. 飞牛统一网关（参考 deepseek.harness.fnos 的 proxy.go 设计）：
    - 单端口 HTTP/HTTPS 自适应反代（peek 首字节嗅探 TLS 分流）
    - 反向代理 QwenPaw WebUI 到外部反代端口
@@ -51,8 +55,10 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 STATUS_CACHE_TTL = 60
 
 # 应用安装包版本（与 manifest 的 version 保持同步；升级时同步更新）
-APP_VERSION = "26.8.34"
-# 远程更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
+APP_VERSION = "26.8.41"
+# 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
+PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
+# 应用框架更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
 UPDATE_CHECK_URL = "https://api.github.com/repos/yuexps/QwenPaw-FNOS/releases/latest"
 UPDATE_CHECK_TTL = 600  # 检查结果缓存 10 分钟
 
@@ -350,15 +356,13 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
     # ---------------- 日志 ----------------
 
-    def read_log_tail(self, lines: int = 500) -> list:
-        """读取运行日志末尾 N 行，剥除 ANSI 颜色码"""
-        log_file = self.cfg.get("log_file", "")
-        if not os.path.exists(log_file):
-            return []
-
+    def _tail_lines(self, path: str, lines: int) -> list:
+        """读取文件末尾 N 行，剥除 ANSI 颜色码"""
         result = []
+        if not path or not os.path.exists(path):
+            return result
         try:
-            with open(log_file, encoding="utf-8", errors="ignore") as f:
+            with open(path, encoding="utf-8", errors="ignore") as f:
                 all_lines = f.readlines()
                 tailed = all_lines[-lines:] if len(all_lines) > lines else all_lines
             for line in tailed:
@@ -367,8 +371,11 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
                     result.append({"level": "info", "time": "", "message": stripped})
         except Exception as e:
             logger.error(f"读取日志失败: {e}")
-
         return result
+
+    def read_log_tail(self, lines: int = 500) -> list:
+        """读取运行日志末尾 N 行，剥除 ANSI 颜色码"""
+        return self._tail_lines(self.cfg.get("log_file", ""), lines)
 
     # ---------------- 服务控制 ----------------
 
@@ -499,23 +506,60 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             handler = urllib.request.ProxyHandler({})
         return urllib.request.build_opener(handler)
 
+    def _pypi_latest(self):
+        """查询 PyPI 上 qwenpaw 内核最新版本（失败返回 None，不抛异常）"""
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                PYPI_CHECK_URL,
+                headers={"User-Agent": "QwenPaw-FNOS/" + APP_VERSION},
+            )
+            with self._build_update_opener().open(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+            version = str((data.get("info") or {}).get("version") or "").strip()
+            return version or None
+        except Exception as e:
+            logger.warning("查询 PyPI 内核最新版本失败: %s" % e)
+            return None
+
     def check_update(self, force: bool = False) -> dict:
-        """GET /api/check-update：查询 GitHub Releases 最新版本（带缓存与失败降级）"""
+        """GET /api/check_update：双层版本检查（带缓存与失败降级）
+
+        - 内核层（venv 里的 qwenpaw 包 vs PyPI 最新）：「应用更新」按钮可直接升级；
+        - 应用框架层（fpk 安装包 APP_VERSION vs GitHub Releases）：
+          只能经 fnOS 应用中心安装新版 .fpk，此处仅提示，失败也不影响内核层结果。
+        """
         now = time.time()
         if not force and self._update_cache is not None and (now - self._update_cache_ts) < UPDATE_CHECK_TTL:
             return dict(self._update_cache)
 
+        runtime_version = self.get_version()
+        runtime_latest = self._pypi_latest()
+        runtime_update = bool(
+            runtime_latest
+            and runtime_version != "未知"
+            and self._version_gt(runtime_latest, runtime_version)
+        )
+
         result = {
             "success": True,
             "current_version": self.manifest_version(),
-            "runtime_version": self.get_version(),
+            "runtime_version": runtime_version,
+            "runtime_latest_version": runtime_latest,
+            "runtime_update_available": runtime_update,
+            "runtime_url": "https://pypi.org/project/qwenpaw/",
             "latest_version": None,
-            "update_available": False,
             "release_url": "",
             "release_name": "",
+            "shell_update_available": False,
+            # 兼容旧字段：任一层有更新即视为有更新
+            "update_available": runtime_update,
             "message": "",
             "error": None,
         }
+
+        # 应用框架（fpk）检查：GitHub Releases；失败仅降级为提示
+        shell_error = None
         try:
             import urllib.request
             req = urllib.request.Request(
@@ -534,19 +578,32 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             result["release_name"] = data.get("name") or tag
             cur = self.manifest_version()
             if latest and self._version_gt(latest, cur):
-                result["update_available"] = True
-                result["message"] = (
-                    "发现新版本 v%s（当前 v%s），请下载新版 .fpk 后在 fnOS 应用中心安装完成升级"
-                    % (latest, cur)
-                )
-            else:
-                result["message"] = "已是最新版本（v%s）" % cur
+                result["shell_update_available"] = True
         except Exception as e:
-            result["success"] = False
-            result["error"] = str(e)
-            result["message"] = (
-                "检查更新失败：%s（请确认 NAS 可访问 GitHub，或在本页「网络代理」中配置代理）" % e
+            shell_error = str(e)
+
+        # 组装提示文案
+        parts = []
+        if runtime_update:
+            parts.append(
+                "发现 QwenPaw 内核新版本 v%s（当前 v%s），点击「更新」直接升级"
+                % (runtime_latest, runtime_version)
             )
+        elif runtime_latest is None:
+            parts.append(
+                "QwenPaw 内核版本检查失败（当前 v%s），请确认 NAS 可访问 PyPI，或在「应用设置」中配置网络代理"
+                % runtime_version
+            )
+        else:
+            parts.append("QwenPaw 内核已是最新版本（v%s）" % runtime_version)
+        if result["shell_update_available"]:
+            parts.append(
+                "应用框架有新版 v%s（当前 v%s），可在 fnOS 应用中心安装新版 .fpk（数据与配置保留）"
+                % (result["latest_version"], result["current_version"])
+            )
+        elif shell_error:
+            parts.append("应用框架版本检查失败（GitHub 访问异常）")
+        result["message"] = "；".join(parts)
 
         self._update_cache = result
         self._update_cache_ts = now
@@ -558,6 +615,195 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         def parts(v):
             return [int(seg) if seg.isdigit() else 0 for seg in re.split(r"[._-]", v)]
         return parts(a) > parts(b)
+
+    # ---------------- 内核直接升级（参考 com.dustinky.qwenpaw 控制台升级模块） ----------------
+
+    def _upgrade_paths(self) -> tuple:
+        """升级相关文件路径（与 PID 文件同目录，即 TRIM_PKGVAR）"""
+        var_dir = os.path.dirname(self.cfg.get("pid_file", "")) or "/tmp"
+        return (
+            os.path.join(var_dir, "upgrade.log"),     # 升级过程日志
+            os.path.join(var_dir, "upgrade.pid"),     # 升级后台进程 PID
+            os.path.join(var_dir, "upgrade.lock"),    # 并发锁目录
+            os.path.join(var_dir, "upgrade.result"),  # 升级结果（exit code）
+        )
+
+    def upgrade_running(self) -> bool:
+        """升级后台进程是否存活；顺便清理上次升级残留（PID 文件 / 锁目录）"""
+        _log, up_pid, up_lock, _result = self._upgrade_paths()
+        pid = ""
+        try:
+            with open(up_pid, encoding="utf-8") as f:
+                pid = f.read().strip()
+        except OSError:
+            pid = ""
+        if pid and self.process_alive(pid):
+            return True
+        if os.path.exists(up_pid) or os.path.exists(up_lock):
+            try:
+                os.remove(up_pid)
+            except OSError:
+                pass
+            try:
+                os.rmdir(up_lock)
+            except OSError:
+                pass
+        return False
+
+    def _build_upgrade_script(self, venv_python: str, pid_file: str, log_file: str,
+                              up_log: str, up_pid: str, up_result: str, start_cmd: str) -> str:
+        """构造后台升级脚本：pip 升级内核 -> 成功则重启服务（自包含，页面关闭也不中断）"""
+        s = ""
+        s += ': > "' + up_log + '"\n'
+        s += 'echo "=== QwenPaw 内核升级开始 ===" >> "' + up_log + '"\n'
+        s += 'echo "时间: $(date \'+%Y-%m-%d %H:%M:%S\')" >> "' + up_log + '"\n'
+        s += 'echo "" >> "' + up_log + '"\n'
+        s += 'echo "$ PYTHONUNBUFFERED=1 ' + venv_python + ' -m pip install --upgrade qwenpaw" >> "' + up_log + '"\n'
+        s += ('PYTHONUNBUFFERED=1 "' + venv_python + '" -m pip install --upgrade --no-input qwenpaw'
+              ' >> "' + up_log + '" 2>&1\n')
+        s += 'rc=$?\n'
+        s += 'echo "" >> "' + up_log + '"\n'
+        s += 'if [ $rc -eq 0 ]; then\n'
+        s += '  echo "=== 内核升级成功 ===" >> "' + up_log + '"\n'
+        s += '  echo "正在重启 QwenPaw 服务..." >> "' + up_log + '"\n'
+        s += '  if [ -f "' + pid_file + '" ]; then\n'
+        s += '    old_pid=$(head -n 1 "' + pid_file + '" | tr -d \'[:space:]\')\n'
+        s += '    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then\n'
+        s += '      kill -TERM "$old_pid" 2>/dev/null\n'
+        s += '      count=0\n'
+        s += '      while kill -0 "$old_pid" 2>/dev/null && [ $count -lt 20 ]; do\n'
+        s += '        sleep 0.5\n'
+        s += '        count=$((count + 1))\n'
+        s += '      done\n'
+        s += '      if kill -0 "$old_pid" 2>/dev/null; then\n'
+        s += '        kill -KILL "$old_pid" 2>/dev/null\n'
+        s += '      fi\n'
+        s += '    fi\n'
+        s += '    rm -f "' + pid_file + '"\n'
+        s += '  fi\n'
+        s += '  sleep 1\n'
+        s += '  bash -c \'' + start_cmd + '\' >> "' + log_file + '" 2>&1 &\n'
+        s += '  echo $! > "' + pid_file + '"\n'
+        s += '  echo "QwenPaw 已重启" >> "' + up_log + '"\n'
+        s += 'else\n'
+        s += '  echo "=== 内核升级失败 (exit code: $rc) ===" >> "' + up_log + '"\n'
+        s += 'fi\n'
+        s += 'echo "$rc" > "' + up_result + '"\n'
+        s += 'rm -f "' + up_pid + '"\n'
+        return s
+
+    def start_upgrade(self) -> dict:
+        """POST /api/action {action:'upgrade'}：后台 pip 升级内核并自动重启服务"""
+        if self.upgrade_running():
+            return {"success": False, "message": "升级正在进行中，请稍候"}
+
+        up_log, up_pid, up_lock, up_result = self._upgrade_paths()
+        try:
+            os.mkdir(up_lock)
+        except OSError:
+            return {"success": False, "message": "升级正在进行中，请稍候"}
+
+        try:
+            venv_python = os.path.join(self.cfg.get("venv", ""), "bin", "python3")
+            if not os.path.exists(venv_python):
+                return {"success": False, "message": "未找到 Python 虚拟环境，无法升级"}
+
+            # 预检：PyPI 可达且内核已最新时直接拒绝，避免无谓的重启
+            runtime_version = self.get_version()
+            latest = self._pypi_latest()
+            if (latest and runtime_version != "未知"
+                    and not self._version_gt(latest, runtime_version)):
+                return {
+                    "success": False,
+                    "message": "QwenPaw 内核已是最新版本（v%s），无需升级" % runtime_version,
+                    "runtime_version": runtime_version,
+                    "runtime_latest_version": latest,
+                }
+
+            log_file = self.cfg.get("log_file", "")
+            pid_file = self.cfg.get("pid_file", "")
+            start_cmd = self.build_service_command()
+            script = self._build_upgrade_script(
+                venv_python, pid_file, log_file, up_log, up_pid, up_result, start_cmd
+            )
+
+            # 清理上次结果文件
+            try:
+                os.remove(up_result)
+            except OSError:
+                pass
+
+            proc = subprocess.Popen(
+                ["bash", "-c", script],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            with open(up_pid, "w", encoding="utf-8") as f:
+                f.write(str(proc.pid))
+            return {
+                "success": True,
+                "message": "内核升级已开始，升级期间请勿关闭页面",
+                "pid": proc.pid,
+            }
+        except Exception as e:
+            logger.error(f"启动内核升级失败: {e}")
+            return {"success": False, "message": f"启动升级失败: {e}"}
+        finally:
+            # Popen 失败或预检拒绝时释放锁；成功时锁留给 upgrade_running 存活检测后清理
+            if not os.path.exists(up_pid):
+                try:
+                    os.rmdir(up_lock)
+                except OSError:
+                    pass
+
+    def upgrade_status(self) -> dict:
+        """GET /api/upgrade_status：升级中返回 upgrading=true；结束后首次查询返回结果并消费"""
+        if self.upgrade_running():
+            return {"success": True, "upgrading": True}
+
+        _log, _pid, _lock, up_result = self._upgrade_paths()
+        exit_code = None
+        if os.path.exists(up_result):
+            try:
+                with open(up_result, encoding="utf-8") as f:
+                    exit_code = int(f.read().strip() or "-1")
+            except Exception:
+                exit_code = -1
+            try:
+                os.remove(up_result)
+            except OSError:
+                pass
+            # 版本缓存失效，让状态页立即反映新版本
+            self._status_cache = None
+
+        if exit_code is None:
+            return {"success": True, "upgrading": False, "finished": False}
+
+        if exit_code == 0:
+            new_version = self.get_version()
+            return {
+                "success": True,
+                "upgrading": False,
+                "finished": True,
+                "exit_code": 0,
+                "new_version": new_version,
+                "message": "QwenPaw 内核升级完成（v%s），服务已重启" % new_version,
+            }
+        return {
+            "success": True,
+            "upgrading": False,
+            "finished": True,
+            "exit_code": exit_code,
+            "new_version": None,
+            "message": "QwenPaw 内核升级失败（exit %s），请查看升级日志" % exit_code,
+        }
+
+    def upgrade_logs(self) -> dict:
+        """GET /api/upgrade_logs：返回升级日志末尾 500 行"""
+        up_log, _pid, _lock, _result = self._upgrade_paths()
+        return {"success": True, "logs": self._tail_lines(up_log, 500)}
 
     # ---------------- 重置密码 / 重置运行环境 ----------------
 
@@ -704,7 +950,17 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
             return
 
         if action == "check_update":
-            self.send_json(server.check_update())
+            full_path = self.path or ""
+            force = ("force=1" in full_path) or ("force=true" in full_path.lower())
+            self.send_json(server.check_update(force=force))
+            return
+
+        if action == "upgrade_status":
+            self.send_json(server.upgrade_status())
+            return
+
+        if action == "upgrade_logs":
+            self.send_json(server.upgrade_logs())
             return
 
         if method != "POST":
@@ -729,14 +985,7 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 data = {}
             act = str(data.get("action", "")).strip()
             if act == "upgrade":
-                upd = server.check_update()
-                self.send_json({
-                    "success": True,
-                    "message": "QwenPaw 运行中无法自我替换安装包，请在 fnOS 应用中心安装新版 .fpk 完成升级（数据与配置会保留）",
-                    "update_available": upd.get("update_available", False),
-                    "release_url": upd.get("release_url", ""),
-                    "latest_version": upd.get("latest_version"),
-                })
+                self.send_json(server.start_upgrade())
             elif act == "reset":
                 self.send_json(server.reset_runtime())
             elif act in ("restart", "repair"):

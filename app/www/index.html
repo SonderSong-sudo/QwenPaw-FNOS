@@ -1511,7 +1511,7 @@
                     </div>
                     <div>
                       <div class="action-title">检查更新</div>
-                      <div class="action-sub" id="quickUpdateSub">当前安装版本 -</div>
+                      <div class="action-sub" id="quickUpdateSub">当前内核版本 -</div>
                     </div>
                   </div>
                   <button class="btn btn-outline btn-xs" id="btnQuickCheckUpdate" onclick="checkUpdate()">
@@ -1529,16 +1529,17 @@
                     </div>
                     <div>
                       <div class="action-title">应用更新</div>
-                      <div class="action-sub">生成升级引导并跳转发布页</div>
+                      <div class="action-sub" id="quickUpgradeSub">检测到新版本后直接升级内核并重启</div>
                     </div>
                   </div>
-                  <button class="btn btn-primary btn-xs" onclick="doUpgrade()">
+                  <button class="btn btn-primary btn-xs" id="btnQuickUpgrade" onclick="doUpgrade()">
                     <svg class="icon-sm">
                       <use href="#i-rotate-cw" />
                     </svg>更新
                   </button>
                 </div>
                 <div id="quickUpdateResult" style="margin-top:10px"></div>
+                <div id="quickUpgradeLog" style="margin-top:4px"></div>
               </div>
             </div>
 
@@ -2091,7 +2092,7 @@
       document.getElementById('statRuntime').textContent = fmtRuntime(state.startAt);
       document.getElementById('statVersion').textContent = state.version || '-';
       var qsub = document.getElementById('quickUpdateSub');
-      if (qsub) qsub.textContent = '当前安装版本 ' + (state.version || '-') + '，检查 GitHub 最新发布';
+      if (qsub) qsub.textContent = '当前内核 v' + (state.version || '-') + '，可检查并一键更新';
       document.getElementById('svcPort').textContent = state.port || '-';
       document.getElementById('svcWorkdir').textContent = state.workingDir || '-';
       document.getElementById('svcVersion').textContent = state.version || '-';
@@ -2287,12 +2288,12 @@
       var sw = document.getElementById('npSwitch');
       sw.className = 'switch' + (sw.className.indexOf('on') === -1 ? ' on' : '');
     }
-    function checkUpdate() {
+    function checkUpdate(force) {
       var btn = document.getElementById('btnQuickCheckUpdate');
       var oldHtml = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>检查中';
-      return apiGet('api/check_update').then(function (d) {
+      return apiGet('api/check_update' + (force ? '?force=1' : '')).then(function (d) {
         renderUpdateResult(d);
       }).catch(function () {
         renderUpdateResult(null);
@@ -2308,24 +2309,115 @@
           '<span>检查更新失败，请检查网络或配置网络代理</span></div>';
         return;
       }
-      var cls = d.success ? (d.update_available ? 'warning' : 'success') : 'error';
-      var icon = d.update_available ? 'i-alert' : (d.success ? 'i-check' : 'i-alert');
-      var html = '<div class="update-result ' + cls + '">' +
-        '<svg class="icon-sm"><use href="#' + icon + '"/></svg>' +
-        '<span>' + esc(d.message || '') + '</span></div>';
-      if (d.update_available && d.release_url) {
-        html += '<div class="form-hint" style="margin-top:8px">发布页：<a href="' + esc(d.release_url) +
-          '" target="_blank" rel="noopener">' + esc(d.release_url) + '</a></div>';
+      var html = '';
+      if (d.runtime_update_available) {
+        html += '<div class="update-result warning"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
+          '<span>发现 QwenPaw 内核新版本 v' + esc(d.runtime_latest_version) + '（当前 v' + esc(d.runtime_version) + '），点击「更新」直接升级</span></div>';
+      } else if (d.runtime_latest_version === null || d.runtime_latest_version === undefined) {
+        html += '<div class="update-result error"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
+          '<span>内核版本检查失败（当前 v' + esc(d.runtime_version) + '），请检查网络或在「应用设置」中配置代理</span></div>';
+      } else {
+        html += '<div class="update-result success"><svg class="icon-sm"><use href="#i-check"/></svg>' +
+          '<span>QwenPaw 内核已是最新版本（v' + esc(d.runtime_version) + '）</span></div>';
+      }
+      if (d.shell_update_available && d.release_url) {
+        html += '<div class="form-hint" style="margin-top:8px">应用框架有新版 v' + esc(d.latest_version) +
+          '（当前 v' + esc(d.current_version) + '），可在 fnOS 应用中心安装：<a href="' + esc(d.release_url) +
+          '" target="_blank" rel="noopener">发布页</a></div>';
       }
       box.innerHTML = html;
     }
+    function setQuickUpgradeSub(text) {
+      var el = document.getElementById('quickUpgradeSub');
+      if (el) el.textContent = text;
+    }
+    function renderUpgradeLog(logs, running) {
+      var box = document.getElementById('quickUpgradeLog');
+      if (!box) return;
+      var lines = (logs || []).slice(-8).map(function (l) { return String(l.message || ''); });
+      var body = lines.length ? lines.join('\n') : (running ? '正在准备升级…' : '暂无升级日志');
+      box.innerHTML = '<details' + (running ? ' open' : '') + ' style="margin-top:6px">' +
+        '<summary style="cursor:pointer;font-size:12px;opacity:.75">升级日志' + (running ? '（进行中）' : '') + '</summary>' +
+        '<pre style="margin:6px 0 0;padding:8px 10px;background:rgba(127,127,127,.08);border-radius:8px;font-size:11px;line-height:1.55;white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto">' +
+        esc(body) + '</pre></details>';
+    }
+    var upgradeBusy = false;
     function doUpgrade() {
+      if (upgradeBusy) return;
+      var btn = document.getElementById('btnQuickUpgrade');
+      var oldHtml = btn.innerHTML;
+      upgradeBusy = true;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>升级中';
+      setQuickUpgradeSub('正在请求升级…');
       apiPost('api/action', { action: 'upgrade' }).then(function (d) {
-        toast((d && d.message) || '升级引导已生成', d && d.success ? 'success' : 'error');
-        if (d && d.release_url) window.open(d.release_url, '_blank');
+        if (!d || !d.success) {
+          toast((d && d.message) || '无法开始升级', 'error');
+          setQuickUpgradeSub((d && d.message) || '无法开始升级');
+          upgradeBusy = false;
+          btn.disabled = false;
+          btn.innerHTML = oldHtml;
+          return;
+        }
+        toast('内核升级已开始，升级期间请勿关闭页面', 'success');
+        renderUpgradeLog([], true);
+        pollUpgrade(0, btn, oldHtml);
       }).catch(function () {
         toast('升级请求失败', 'error');
+        upgradeBusy = false;
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
       });
+    }
+    function pollUpgrade(miss, btn, oldHtml) {
+      apiGet('api/upgrade_status').then(function (d) {
+        if (d && d.upgrading) {
+          setQuickUpgradeSub('正在升级内核（下载并安装新版），请勿关闭页面…');
+          apiGet('api/upgrade_logs').then(function (ld) {
+            renderUpgradeLog(ld && ld.logs ? ld.logs : [], true);
+          }).catch(function () { });
+          setTimeout(function () { pollUpgrade(0, btn, oldHtml); }, 2500);
+          return;
+        }
+        if (d && d.finished) {
+          finishUpgrade(d, btn, oldHtml);
+          return;
+        }
+        if (miss < 8) {
+          setTimeout(function () { pollUpgrade(miss + 1, btn, oldHtml); }, 2500);
+          return;
+        }
+        upgradeBusy = false;
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+        setQuickUpgradeSub('升级状态未知，可刷新页面查看当前版本');
+      }).catch(function () {
+        if (miss < 8) {
+          setTimeout(function () { pollUpgrade(miss + 1, btn, oldHtml); }, 3000);
+          return;
+        }
+        upgradeBusy = false;
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+        setQuickUpgradeSub('升级状态查询失败，可稍后刷新页面查看版本');
+      });
+    }
+    function finishUpgrade(d, btn, oldHtml) {
+      upgradeBusy = false;
+      btn.disabled = false;
+      btn.innerHTML = oldHtml;
+      apiGet('api/upgrade_logs').then(function (ld) {
+        renderUpgradeLog(ld && ld.logs ? ld.logs : [], false);
+      }).catch(function () { });
+      if (d.exit_code === 0) {
+        toast(d.message || 'QwenPaw 内核升级完成，服务已重启', 'success');
+        setQuickUpgradeSub('内核已升级至 v' + (d.new_version || '最新') + '，服务已重启');
+        fetchStatus();
+        checkUpdate(true);
+      } else {
+        toast(d.message || 'QwenPaw 内核升级失败，请查看升级日志', 'error');
+        setQuickUpgradeSub('内核升级失败，请查看升级日志后重试');
+      }
     }
     function saveNetworkProxy() {
       var btn = document.getElementById('btnSaveProxy');
