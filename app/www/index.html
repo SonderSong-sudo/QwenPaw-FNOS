@@ -1,61 +1,41 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QwenPaw 控制台</title>
-<link rel="icon" type="image/svg+xml" href="./favicon.svg">
-<link rel="icon" type="image/png" sizes="64x64" href="./favicon.png">
-<style>
-  /* ============ 主题变量（参考 Nuxt UI 语义） ============ */
-  :root {
-    --ui-bg: #ffffff;
-    --ui-bg-content: #f6f7f9;
-    --ui-bg-elevated: #f3f4f6;
-    --ui-bg-card: #ffffff;
-    --ui-text: #1a1d23;
-    --ui-text-muted: #8a919f;
-    --ui-border: #e5e7eb;
-    --ui-primary: #6366f1;
-    --ui-primary-soft: rgba(99, 102, 241, 0.12);
-    --ui-success: #22c55e;
-    --ui-success-soft: rgba(34, 197, 94, 0.12);
-    --ui-warning: #f59e0b;
-    --ui-warning-soft: rgba(245, 158, 11, 0.12);
-    --ui-error: #ef4444;
-    --ui-error-soft: rgba(239, 68, 68, 0.12);
-    --ui-info: #3b82f6;
-    --ui-info-soft: rgba(59, 130, 246, 0.12);
-    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
-    --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.06);
-  }
-  /* 深色主题变量（三态皮肤，参考 DHS data-theme 方案）
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QwenPaw 控制台</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="./favicon.png">
+  <style>
+    /* ============ 主题变量（参考 Nuxt UI 语义） ============ */
+    :root {
+      --ui-bg: #ffffff;
+      --ui-bg-content: #f6f7f9;
+      --ui-bg-elevated: #f3f4f6;
+      --ui-bg-card: #ffffff;
+      --ui-text: #1a1d23;
+      --ui-text-muted: #8a919f;
+      --ui-border: #e5e7eb;
+      --ui-primary: #6366f1;
+      --ui-primary-soft: rgba(99, 102, 241, 0.12);
+      --ui-success: #22c55e;
+      --ui-success-soft: rgba(34, 197, 94, 0.12);
+      --ui-warning: #f59e0b;
+      --ui-warning-soft: rgba(245, 158, 11, 0.12);
+      --ui-error: #ef4444;
+      --ui-error-soft: rgba(239, 68, 68, 0.12);
+      --ui-info: #3b82f6;
+      --ui-info-soft: rgba(59, 130, 246, 0.12);
+      --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+      --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.06);
+    }
+
+    /* 深色主题变量（三态皮肤，参考 DHS data-theme 方案）
      data-theme="dark"  -> 强制深色
      data-theme="light" -> 强制浅色
      data-theme="auto"/缺省 -> 跟随系统（prefers-color-scheme） */
-  :root[data-theme="dark"] {
-    --ui-bg: #0c0d10;
-    --ui-bg-content: #131418;
-    --ui-bg-elevated: #1c1e24;
-    --ui-bg-card: #17181d;
-    --ui-text: #f1f2f4;
-    --ui-text-muted: #9aa1ad;
-    --ui-border: #26282f;
-    --ui-primary: #818cf8;
-    --ui-primary-soft: rgba(129, 140, 248, 0.16);
-    --ui-success: #34d399;
-    --ui-success-soft: rgba(52, 211, 153, 0.16);
-    --ui-warning: #fbbf24;
-    --ui-warning-soft: rgba(251, 191, 36, 0.16);
-    --ui-error: #f87171;
-    --ui-error-soft: rgba(248, 113, 113, 0.16);
-    --ui-info: #60a5fa;
-    --ui-info-soft: rgba(96, 165, 250, 0.16);
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    :root[data-theme="dark"] {
       --ui-bg: #0c0d10;
       --ui-bg-content: #131418;
       --ui-bg-elevated: #1c1e24;
@@ -76,1829 +56,2511 @@
       --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
       --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
     }
-  }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    background: var(--ui-bg);
-    color: var(--ui-text);
-    font-size: 14px;
-    line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-  a { color: inherit; text-decoration: none; }
-  button { font-family: inherit; cursor: pointer; }
-
-  .icon { width: 20px; height: 20px; flex-shrink: 0; }
-  .icon-sm { width: 16px; height: 16px; flex-shrink: 0; }
-  .icon-lg { width: 28px; height: 28px; flex-shrink: 0; }
-
-  /* ============ 整体布局（参考 ResponsiveLayout） ============ */
-  .layout {
-    height: 100vh;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-  @media (min-width: 768px) {
-    .layout {
-      flex-direction: row;
-      padding-right: 8px;
-      padding-bottom: 8px;
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]):not([data-theme="dark"]) {
+        --ui-bg: #0c0d10;
+        --ui-bg-content: #131418;
+        --ui-bg-elevated: #1c1e24;
+        --ui-bg-card: #17181d;
+        --ui-text: #f1f2f4;
+        --ui-text-muted: #9aa1ad;
+        --ui-border: #26282f;
+        --ui-primary: #818cf8;
+        --ui-primary-soft: rgba(129, 140, 248, 0.16);
+        --ui-success: #34d399;
+        --ui-success-soft: rgba(52, 211, 153, 0.16);
+        --ui-warning: #fbbf24;
+        --ui-warning-soft: rgba(251, 191, 36, 0.16);
+        --ui-error: #f87171;
+        --ui-error-soft: rgba(248, 113, 113, 0.16);
+        --ui-info: #60a5fa;
+        --ui-info-soft: rgba(96, 165, 250, 0.16);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+        --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+      }
     }
-  }
 
-  /* ============ 侧边栏（参考 DesktopSidebar） ============ */
-  .sidebar {
-    display: none;
-    width: 256px;
-    background: var(--ui-bg);
-    flex-direction: column;
-    flex-shrink: 0;
-  }
-  @media (min-width: 768px) {
-    .sidebar { display: flex; }
-  }
-  .sidebar-brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 18px 18px 10px;
-  }
-  .sidebar-brand .brand-logo {
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
-    object-fit: contain;
-    flex-shrink: 0;
-    background: var(--ui-bg-elevated);
-  }
-  .sidebar-brand .brand-text { font-weight: 700; font-size: 15px; letter-spacing: 0.2px; }
-  .sidebar-brand .brand-sub { font-size: 11px; color: var(--ui-text-muted); }
-  .sidebar-nav { flex: 1; overflow-y: auto; padding: 6px 10px; }
-  .nav-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    color: var(--ui-text-muted);
-    font-weight: 500;
-    transition: background 0.15s, color 0.15s;
-    margin-bottom: 2px;
-    width: 100%;
-    border: none;
-    background: transparent;
-    text-align: left;
-    font-size: 14px;
-  }
-  .nav-item:hover { background: var(--ui-bg-elevated); color: var(--ui-text); }
-  .nav-item.active { background: var(--ui-primary-soft); color: var(--ui-primary); }
-  .sidebar-foot-nav { padding: 6px 10px 0; }
-  .sidebar-divider {
-    height: 1px;
-    background: var(--ui-border);
-    margin: 4px 6px 6px;
-  }
-  .sidebar-footer {
-    padding: 12px 16px;
-    font-size: 12px;
-    color: var(--ui-text-muted);
-    text-align: center;
-    border-top: 1px solid var(--ui-border);
-  }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-  /* ============ 主内容区 ============ */
-  .content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
-    padding-bottom: 84px;
-    background: var(--ui-bg-content);
-  }
-  @media (min-width: 768px) {
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: var(--ui-bg);
+      color: var(--ui-text);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button {
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    .icon-sm {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    .icon-lg {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    /* ============ 整体布局（参考 ResponsiveLayout） ============ */
+    .layout {
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    @media (min-width: 768px) {
+      .layout {
+        flex-direction: row;
+        padding-right: 8px;
+        padding-bottom: 8px;
+      }
+    }
+
+    /* ============ 侧边栏（参考 DesktopSidebar） ============ */
+    .sidebar {
+      display: none;
+      width: 256px;
+      background: var(--ui-bg);
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    @media (min-width: 768px) {
+      .sidebar {
+        display: flex;
+      }
+    }
+
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 18px 10px;
+    }
+
+    .sidebar-brand .brand-logo {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      object-fit: contain;
+      flex-shrink: 0;
+      background: var(--ui-bg-elevated);
+    }
+
+    .sidebar-brand .brand-text {
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.2px;
+    }
+
+    .sidebar-brand .brand-sub {
+      font-size: 11px;
+      color: var(--ui-text-muted);
+    }
+
+    .sidebar-nav {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 10px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      color: var(--ui-text-muted);
+      font-weight: 500;
+      transition: background 0.15s, color 0.15s;
+      margin-bottom: 2px;
+      width: 100%;
+      border: none;
+      background: transparent;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    .nav-item:hover {
+      background: var(--ui-bg-elevated);
+      color: var(--ui-text);
+    }
+
+    .nav-item.active {
+      background: var(--ui-primary-soft);
+      color: var(--ui-primary);
+    }
+
+    .sidebar-foot-nav {
+      padding: 6px 10px 0;
+    }
+
+    .sidebar-divider {
+      height: 1px;
+      background: var(--ui-border);
+      margin: 4px 6px 6px;
+    }
+
+    .sidebar-footer {
+      padding: 12px 16px;
+      font-size: 12px;
+      color: var(--ui-text-muted);
+      text-align: center;
+      border-top: 1px solid var(--ui-border);
+    }
+
+    /* ============ 主内容区 ============ */
     .content {
-      padding-bottom: 20px;
-      border-radius: 12px;
-      margin-right: 8px;
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      padding-bottom: 84px;
       background: var(--ui-bg-content);
     }
-  }
-  .view { display: none; }
-  .view.active { display: block; }
-  .view-inner { max-width: 1100px; margin: 0 auto; }
 
-  /* ============ 移动端底部 TabBar（参考 MobileTabBar） ============ */
-  .tabbar {
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    z-index: 50;
-    background: var(--ui-bg);
-    border-top: 1px solid var(--ui-border);
-    display: flex;
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  @media (min-width: 768px) {
-    .tabbar { display: none; }
-  }
-  .tabbar-item {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    height: 60px;
-    color: var(--ui-text-muted);
-    font-size: 12px;
-    background: transparent;
-    border: none;
-  }
-  .tabbar-item.active { color: var(--ui-primary); }
+    @media (min-width: 768px) {
+      .content {
+        padding-bottom: 20px;
+        border-radius: 12px;
+        margin-right: 8px;
+        background: var(--ui-bg-content);
+      }
+    }
 
-  /* ============ 卡片 ============ */
-  .card {
-    background: var(--ui-bg-card);
-    border-radius: 14px;
-    box-shadow: var(--shadow-sm);
-    overflow: hidden;
-  }
-  .card-header {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 16px 20px 0;
-    font-weight: 600;
-    font-size: 15px;
-  }
-  .card-body { padding: 16px 20px 20px; }
+    .view {
+      display: none;
+    }
 
-  /* ============ 状态卡 ============ */
-  .status-card {
-    background: var(--ui-bg-card);
-    border-radius: 14px;
-    box-shadow: var(--shadow-md);
-    padding: 24px;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-  }
-  .status-left { display: flex; align-items: center; gap: 16px; }
-  .status-badge-wrap { position: relative; }
-  .status-icon {
-    width: 56px; height: 56px;
-    border-radius: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .status-icon.running { background: var(--ui-success-soft); color: var(--ui-success); }
-  .status-icon.stopped { background: var(--ui-bg-elevated); color: var(--ui-text-muted); }
-  .status-dot {
-    position: absolute;
-    top: -4px; right: -4px;
-    width: 16px; height: 16px;
-    border-radius: 50%;
-    border: 2px solid var(--ui-bg-card);
-    background: var(--ui-text-muted);
-  }
-  .status-dot.running { background: var(--ui-success); }
-  .status-dot.running::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: var(--ui-success);
-    animation: ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
-  }
-  @keyframes ping {
-    0% { transform: scale(1); opacity: 0.75; }
-    75%, 100% { transform: scale(2.6); opacity: 0; }
-  }
-  .status-title-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-  .status-title { font-size: 24px; font-weight: 700; letter-spacing: -0.3px; }
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 600;
-  }
-  .badge.active { background: var(--ui-success-soft); color: var(--ui-success); }
-  .badge.stopped { background: var(--ui-bg-elevated); color: var(--ui-text-muted); }
-  .status-desc { color: var(--ui-text-muted); font-size: 15px; }
-  .status-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .view.active {
+      display: block;
+    }
 
-  /* ============ 按钮 ============ */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    padding: 9px 18px;
-    border-radius: 10px;
-    font-size: 14px;
-    font-weight: 600;
-    border: 1px solid transparent;
-    transition: opacity 0.15s, transform 0.05s;
-    white-space: nowrap;
-  }
-  .btn:active { transform: scale(0.98); }
-  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-  .btn-lg { padding: 12px 22px; font-size: 15px; }
-  .btn-sm { padding: 6px 12px; font-size: 13px; border-radius: 8px; }
-  .btn-xs { padding: 4px 10px; font-size: 12px; border-radius: 7px; }
-  .btn-primary { background: var(--ui-primary); color: #fff; }
-  .btn-primary:hover { opacity: 0.9; }
-  .btn-outline { background: transparent; border-color: var(--ui-border); color: var(--ui-text); }
-  .btn-outline:hover { background: var(--ui-bg-elevated); }
-  .btn-ghost { background: transparent; color: var(--ui-text-muted); }
-  .btn-ghost:hover { background: var(--ui-bg-elevated); color: var(--ui-text); }
-  .btn-success { background: var(--ui-success); color: #fff; }
-  .btn-success:hover { opacity: 0.9; }
-  .btn-danger { background: var(--ui-error); color: #fff; }
-  .btn-danger:hover { opacity: 0.9; }
-  .btn-error-soft { background: var(--ui-error-soft); color: var(--ui-error); }
-  .btn-warning { background: var(--ui-warning); color: #fff; }
-  .btn-warning:hover { opacity: 0.9; }
-  .btn-error-soft:hover { opacity: 0.85; }
-  .btn-success-outline { background: transparent; border-color: var(--ui-success); color: var(--ui-success); }
-  .btn-success-outline:hover { background: var(--ui-success-soft); }
-  .spinner {
-    width: 15px; height: 15px;
-    border: 2px solid currentColor;
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-    display: inline-block;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+    .view-inner {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
 
-  /* ============ 统计格 ============ */
-  .stats-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 16px;
-    margin-top: 20px;
-  }
-  @media (min-width: 640px) {
-    .stats-grid { grid-template-columns: repeat(3, 1fr); }
-  }
-  .stat-item {
-    background: var(--ui-bg-card);
-    border-radius: 12px;
-    box-shadow: var(--shadow-sm);
-    padding: 16px;
-  }
-  .stat-label {
-    font-size: 12px;
-    color: var(--ui-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    margin-bottom: 6px;
-    font-weight: 500;
-  }
-  .stat-value { font-size: 18px; font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    /* ============ 移动端底部 TabBar（参考 MobileTabBar） ============ */
+    .tabbar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 50;
+      background: var(--ui-bg);
+      border-top: 1px solid var(--ui-border);
+      display: flex;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
 
-  /* ============ 双栏（快速操作 / 服务信息） ============ */
-  .grid-2 {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 20px;
-    margin-top: 20px;
-  }
-  @media (min-width: 768px) {
-    .grid-2 { grid-template-columns: 1fr 1fr; }
-  }
-  .action-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: var(--ui-bg-elevated);
-    margin-bottom: 10px;
-  }
-  .action-row:last-child { margin-bottom: 0; }
-  .action-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
-  .action-ic {
-    width: 36px; height: 36px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-  .action-title { font-size: 14px; font-weight: 600; }
-  .action-sub { font-size: 12px; color: var(--ui-text-muted); }
-  .update-result {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    font-size: 13px;
-    margin-top: 14px;
-  }
-  .update-result.success { background: var(--ui-success-soft); color: var(--ui-success); }
-  .update-result.warning { background: var(--ui-warning-soft); color: var(--ui-warning); }
-  .update-result.error { background: var(--ui-error-soft); color: var(--ui-error); }
-  .update-result a { color: inherit; word-break: break-all; }
-  .service-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: var(--ui-bg-elevated);
-    margin-bottom: 10px;
-    min-width: 0;
-  }
-  .service-row:last-child { margin-bottom: 0; }
-  .service-ic {
-    width: 36px; height: 36px;
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-  .service-label { font-size: 12px; color: var(--ui-text-muted); }
-  .service-value { font-size: 14px; font-weight: 500; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; word-break: break-all; }
-  .auth-chip {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
-  }
-  .auth-chip.on { background: var(--ui-success-soft); color: var(--ui-success); }
-  .auth-chip.off { background: var(--ui-bg-elevated); color: var(--ui-text-muted); }
+    @media (min-width: 768px) {
+      .tabbar {
+        display: none;
+      }
+    }
 
-  /* ============ 页面头 ============ */
-  .page-head {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin-bottom: 20px;
-  }
-  @media (min-width: 768px) {
-    .page-head { flex-direction: row; align-items: center; justify-content: space-between; }
-  }
-  .page-title { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
-  .page-sub { color: var(--ui-text-muted); margin-top: 4px; font-size: 14px; }
-  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .tabbar-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      height: 60px;
+      color: var(--ui-text-muted);
+      font-size: 12px;
+      background: transparent;
+      border: none;
+    }
 
-  /* ============ 开关 ============ */
-  .switch-wrap {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 12px;
-    border-radius: 10px;
-    background: var(--ui-bg-card);
-    border: 1px solid var(--ui-primary);
-    font-size: 13px;
-    color: var(--ui-text-muted);
-  }
-  .switch {
-    position: relative;
-    width: 38px; height: 22px;
-    border-radius: 999px;
-    background: var(--ui-bg-elevated);
-    border: 1px solid var(--ui-border);
-    transition: background 0.2s;
-    flex-shrink: 0;
-  }
-  .switch.on { background: var(--ui-primary); border-color: var(--ui-primary); }
-  .switch::after {
-    content: "";
-    position: absolute;
-    top: 2px; left: 2px;
-    width: 16px; height: 16px;
-    border-radius: 50%;
-    background: #fff;
-    transition: transform 0.2s;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.2);
-  }
-  .switch.on::after { transform: translateX(16px); }
+    .tabbar-item.active {
+      color: var(--ui-primary);
+    }
 
-  /* ============ 输入 ============ */
-  .input {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--ui-bg-card);
-    border: 1px solid var(--ui-border);
-    border-radius: 10px;
-    padding: 8px 12px;
-    color: var(--ui-text);
-    width: 100%;
-  }
-  .input:focus-within { border-color: var(--ui-primary); }
-  .input input {
-    border: none;
-    outline: none;
-    background: transparent;
-    color: var(--ui-text);
-    font-size: 14px;
-    width: 100%;
-  }
-  .input input::placeholder { color: var(--ui-text-muted); }
-  .filter-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-  }
-  .input-search { max-width: 100%; flex: 1; min-width: 200px; }
-  .select {
-    background: var(--ui-bg-card);
-    border: 1px solid var(--ui-border);
-    border-radius: 10px;
-    color: var(--ui-text);
-    padding: 8px 12px;
-    font-size: 14px;
-    outline: none;
-  }
-  .select:focus { border-color: var(--ui-primary); }
+    /* ============ 卡片 ============ */
+    .card {
+      background: var(--ui-bg-card);
+      border-radius: 14px;
+      box-shadow: var(--shadow-sm);
+      overflow: hidden;
+    }
 
-  /* ============ 日志列表 ============ */
-  .log-item {
-    background: var(--ui-bg-card);
-    border-radius: 12px;
-    box-shadow: var(--shadow-sm);
-    padding: 12px 16px;
-    margin-bottom: 10px;
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-  }
-  .log-time {
-    font-size: 12px;
-    color: var(--ui-text-muted);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    white-space: nowrap;
-    flex-shrink: 0;
-    padding-top: 2px;
-  }
-  .log-msg {
-    font-size: 13.5px;
-    color: var(--ui-text);
-    word-break: break-word;
-    min-width: 0;
-  }
-  .empty {
-    text-align: center;
-    padding: 40px 0;
-    color: var(--ui-text-muted);
-    font-size: 14px;
-  }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 16px 20px 0;
+      font-weight: 600;
+      font-size: 15px;
+    }
 
-  /* ============ 分页 ============ */
-  .pager-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-top: 16px;
-    flex-wrap: wrap;
-  }
-  .pager-total { font-size: 13px; color: var(--ui-text-muted); }
-  .pager { display: flex; align-items: center; gap: 4px; }
-  .page-btn {
-    min-width: 32px; height: 32px;
-    padding: 0 8px;
-    border-radius: 8px;
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--ui-text-muted);
-    font-size: 13px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .page-btn:hover:not(:disabled) { background: var(--ui-bg-elevated); color: var(--ui-text); }
-  .page-btn.current { background: var(--ui-primary); color: #fff; font-weight: 600; }
-  .page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .card-body {
+      padding: 16px 20px 20px;
+    }
 
-  /* ============ 飞牛统一网关页 ============ */
-  .form-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-  }
-  @media (max-width: 640px) {
-    .form-grid { grid-template-columns: 1fr; }
-  }
-  .form-item { display: flex; flex-direction: column; gap: 6px; }
-  .form-item.full { grid-column: 1 / -1; }
-  .form-item label { font-size: 13px; font-weight: 600; color: var(--ui-text); }
-  .form-hint { font-size: 12px; color: var(--ui-text-muted); line-height: 1.5; }
-  .radio-row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .radio-row label {
-    flex: 1;
-    min-width: 110px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 12px;
-    border: 1px solid var(--ui-border);
-    border-radius: 10px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--ui-text);
-    cursor: pointer;
-    transition: border-color .15s, background .15s;
-  }
-  .radio-row label:has(input:checked) {
-    border-color: var(--ui-primary);
-    background: var(--ui-primary-soft);
-    color: var(--ui-primary);
-  }
-  .radio-row input { accent-color: var(--ui-primary); }
-  .gw-status {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    margin-bottom: 16px;
-    font-size: 13px;
-    font-weight: 500;
-  }
-  .gw-status.on { background: var(--ui-success-soft); color: var(--ui-success); }
-  .gw-status.off { background: var(--ui-warning-soft); color: var(--ui-warning); }
-  .gw-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .gw-status.on .gw-dot { background: var(--ui-success); }
-  .gw-status.off .gw-dot { background: var(--ui-warning); }
-  .gw-save-bar {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    margin-top: 4px;
-  }
+    /* ============ 状态卡 ============ */
+    .status-card {
+      background: var(--ui-bg-card);
+      border-radius: 14px;
+      box-shadow: var(--shadow-md);
+      padding: 24px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
 
-  /* ============ Toast ============ */
-  .toast-wrap {
-    position: fixed;
-    top: 16px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 100;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    align-items: center;
-    pointer-events: none;
-  }
-  .toast {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--ui-bg-card);
-    border: 1px solid var(--ui-border);
-    color: var(--ui-text);
-    padding: 10px 16px;
-    border-radius: 10px;
-    box-shadow: var(--shadow-md);
-    font-size: 14px;
-    font-weight: 500;
-    animation: slideIn 0.25s ease;
-    pointer-events: auto;
-  }
-  .toast.success { border-color: var(--ui-success); color: var(--ui-success); }
-  .toast.error { border-color: var(--ui-error); color: var(--ui-error); }
-  .toast.warning { border-color: var(--ui-warning); color: var(--ui-warning); }
-  @keyframes slideIn {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
+    .status-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
 
-  /* ============ 模态确认 ============ */
-  .modal-mask {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    z-index: 90;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-  }
-  .modal-mask.show { display: flex; }
-  .modal {
-    background: var(--ui-bg-card);
-    border-radius: 14px;
-    box-shadow: var(--shadow-md);
-    max-width: 420px;
-    width: 100%;
-    overflow: hidden;
-  }
-  .modal-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 16px 20px;
-    font-weight: 600;
-    font-size: 15px;
-    color: var(--ui-warning);
-  }
-  .modal-body { padding: 4px 20px 16px; color: var(--ui-text-muted); font-size: 14px; }
-  .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 0 20px 18px; }
-</style>
+    .status-badge-wrap {
+      position: relative;
+    }
+
+    .status-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .status-icon.running {
+      background: var(--ui-success-soft);
+      color: var(--ui-success);
+    }
+
+    .status-icon.stopped {
+      background: var(--ui-bg-elevated);
+      color: var(--ui-text-muted);
+    }
+
+    .status-dot {
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid var(--ui-bg-card);
+      background: var(--ui-text-muted);
+    }
+
+    .status-dot.running {
+      background: var(--ui-success);
+    }
+
+    .status-dot.running::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: var(--ui-success);
+      animation: ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+    }
+
+    @keyframes ping {
+      0% {
+        transform: scale(1);
+        opacity: 0.75;
+      }
+
+      75%,
+      100% {
+        transform: scale(2.6);
+        opacity: 0;
+      }
+    }
+
+    .status-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .status-title {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .badge.active {
+      background: var(--ui-success-soft);
+      color: var(--ui-success);
+    }
+
+    .badge.stopped {
+      background: var(--ui-bg-elevated);
+      color: var(--ui-text-muted);
+    }
+
+    .status-desc {
+      color: var(--ui-text-muted);
+      font-size: 15px;
+    }
+
+    .status-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    /* ============ 按钮 ============ */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 9px 18px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      border: 1px solid transparent;
+      transition: opacity 0.15s, transform 0.05s;
+      white-space: nowrap;
+    }
+
+    .btn:active {
+      transform: scale(0.98);
+    }
+
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .btn-lg {
+      padding: 12px 22px;
+      font-size: 15px;
+    }
+
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 13px;
+      border-radius: 8px;
+    }
+
+    .btn-xs {
+      padding: 4px 10px;
+      font-size: 12px;
+      border-radius: 7px;
+    }
+
+    .btn-primary {
+      background: var(--ui-primary);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      opacity: 0.9;
+    }
+
+    .btn-outline {
+      background: transparent;
+      border-color: var(--ui-border);
+      color: var(--ui-text);
+    }
+
+    .btn-outline:hover {
+      background: var(--ui-bg-elevated);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--ui-text-muted);
+    }
+
+    .btn-ghost:hover {
+      background: var(--ui-bg-elevated);
+      color: var(--ui-text);
+    }
+
+    .btn-success {
+      background: var(--ui-success);
+      color: #fff;
+    }
+
+    .btn-success:hover {
+      opacity: 0.9;
+    }
+
+    .btn-danger {
+      background: var(--ui-error);
+      color: #fff;
+    }
+
+    .btn-danger:hover {
+      opacity: 0.9;
+    }
+
+    .btn-error-soft {
+      background: var(--ui-error-soft);
+      color: var(--ui-error);
+    }
+
+    .btn-warning {
+      background: var(--ui-warning);
+      color: #fff;
+    }
+
+    .btn-warning:hover {
+      opacity: 0.9;
+    }
+
+    .btn-error-soft:hover {
+      opacity: 0.85;
+    }
+
+    .btn-success-outline {
+      background: transparent;
+      border-color: var(--ui-success);
+      color: var(--ui-success);
+    }
+
+    .btn-success-outline:hover {
+      background: var(--ui-success-soft);
+    }
+
+    .spinner {
+      width: 15px;
+      height: 15px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    /* ============ 统计格 ============ */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+      margin-top: 20px;
+    }
+
+    @media (min-width: 640px) {
+      .stats-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    .stat-item {
+      background: var(--ui-bg-card);
+      border-radius: 12px;
+      box-shadow: var(--shadow-sm);
+      padding: 16px;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--ui-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 6px;
+      font-weight: 500;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 600;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    /* ============ 双栏（快速操作 / 服务信息） ============ */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    @media (min-width: 768px) {
+      .grid-2 {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .action-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: var(--ui-bg-elevated);
+      margin-bottom: 10px;
+    }
+
+    .action-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .action-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .action-ic {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .action-title {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .action-sub {
+      font-size: 12px;
+      color: var(--ui-text-muted);
+    }
+
+    .update-result {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-top: 14px;
+    }
+
+    .update-result.success {
+      background: var(--ui-success-soft);
+      color: var(--ui-success);
+    }
+
+    .update-result.warning {
+      background: var(--ui-warning-soft);
+      color: var(--ui-warning);
+    }
+
+    .update-result.error {
+      background: var(--ui-error-soft);
+      color: var(--ui-error);
+    }
+
+    .update-result a {
+      color: inherit;
+      word-break: break-all;
+    }
+
+    .service-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: var(--ui-bg-elevated);
+      margin-bottom: 10px;
+      min-width: 0;
+    }
+
+    .service-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .service-ic {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .service-label {
+      font-size: 12px;
+      color: var(--ui-text-muted);
+    }
+
+    .service-value {
+      font-size: 14px;
+      font-weight: 500;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-all;
+    }
+
+    .auth-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .auth-chip.on {
+      background: var(--ui-success-soft);
+      color: var(--ui-success);
+    }
+
+    .auth-chip.off {
+      background: var(--ui-bg-elevated);
+      color: var(--ui-text-muted);
+    }
+
+    /* ============ 页面头 ============ */
+    .page-head {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    @media (min-width: 768px) {
+      .page-head {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+      }
+    }
+
+    .page-title {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .page-sub {
+      color: var(--ui-text-muted);
+      margin-top: 4px;
+      font-size: 14px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    /* ============ 开关 ============ */
+    .switch-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-radius: 10px;
+      background: var(--ui-bg-card);
+      border: 1px solid var(--ui-primary);
+      font-size: 13px;
+      color: var(--ui-text-muted);
+    }
+
+    .switch {
+      position: relative;
+      width: 38px;
+      height: 22px;
+      border-radius: 999px;
+      background: var(--ui-bg-elevated);
+      border: 1px solid var(--ui-border);
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+
+    .switch.on {
+      background: var(--ui-primary);
+      border-color: var(--ui-primary);
+    }
+
+    .switch::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #fff;
+      transition: transform 0.2s;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+
+    .switch.on::after {
+      transform: translateX(16px);
+    }
+
+    /* ============ 输入 ============ */
+    .input {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--ui-bg-card);
+      border: 1px solid var(--ui-border);
+      border-radius: 10px;
+      padding: 8px 12px;
+      color: var(--ui-text);
+      width: 100%;
+    }
+
+    .input:focus-within {
+      border-color: var(--ui-primary);
+    }
+
+    .input input {
+      border: none;
+      outline: none;
+      background: transparent;
+      color: var(--ui-text);
+      font-size: 14px;
+      width: 100%;
+    }
+
+    .input input::placeholder {
+      color: var(--ui-text-muted);
+    }
+
+    .filter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .input-search {
+      max-width: 100%;
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .select {
+      background: var(--ui-bg-card);
+      border: 1px solid var(--ui-border);
+      border-radius: 10px;
+      color: var(--ui-text);
+      padding: 8px 12px;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .select:focus {
+      border-color: var(--ui-primary);
+    }
+
+    /* ============ 日志列表 ============ */
+    .log-item {
+      background: var(--ui-bg-card);
+      border-radius: 12px;
+      box-shadow: var(--shadow-sm);
+      padding: 12px 16px;
+      margin-bottom: 10px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .log-time {
+      font-size: 12px;
+      color: var(--ui-text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: nowrap;
+      flex-shrink: 0;
+      padding-top: 2px;
+    }
+
+    .log-msg {
+      font-size: 13.5px;
+      color: var(--ui-text);
+      word-break: break-word;
+      min-width: 0;
+    }
+
+    .empty {
+      text-align: center;
+      padding: 40px 0;
+      color: var(--ui-text-muted);
+      font-size: 14px;
+    }
+
+    /* ============ 分页 ============ */
+    .pager-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    .pager-total {
+      font-size: 13px;
+      color: var(--ui-text-muted);
+    }
+
+    .pager {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .page-btn {
+      min-width: 32px;
+      height: 32px;
+      padding: 0 8px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--ui-text-muted);
+      font-size: 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .page-btn:hover:not(:disabled) {
+      background: var(--ui-bg-elevated);
+      color: var(--ui-text);
+    }
+
+    .page-btn.current {
+      background: var(--ui-primary);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .page-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* ============ 飞牛统一网关页 ============ */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 640px) {
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .form-item {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-item.full {
+      grid-column: 1 / -1;
+    }
+
+    .form-item label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ui-text);
+    }
+
+    .form-hint {
+      font-size: 12px;
+      color: var(--ui-text-muted);
+      line-height: 1.5;
+    }
+
+    .radio-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .radio-row label {
+      flex: 1;
+      min-width: 110px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--ui-border);
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ui-text);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+
+    .radio-row label:has(input:checked) {
+      border-color: var(--ui-primary);
+      background: var(--ui-primary-soft);
+      color: var(--ui-primary);
+    }
+
+    .radio-row input {
+      accent-color: var(--ui-primary);
+    }
+
+    .gw-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .gw-status.on {
+      background: var(--ui-success-soft);
+      color: var(--ui-success);
+    }
+
+    .gw-status.off {
+      background: var(--ui-warning-soft);
+      color: var(--ui-warning);
+    }
+
+    .gw-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .gw-status.on .gw-dot {
+      background: var(--ui-success);
+    }
+
+    .gw-status.off .gw-dot {
+      background: var(--ui-warning);
+    }
+
+    .gw-save-bar {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    /* ============ Toast ============ */
+    .toast-wrap {
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--ui-bg-card);
+      border: 1px solid var(--ui-border);
+      color: var(--ui-text);
+      padding: 10px 16px;
+      border-radius: 10px;
+      box-shadow: var(--shadow-md);
+      font-size: 14px;
+      font-weight: 500;
+      animation: slideIn 0.25s ease;
+      pointer-events: auto;
+    }
+
+    .toast.success {
+      border-color: var(--ui-success);
+      color: var(--ui-success);
+    }
+
+    .toast.error {
+      border-color: var(--ui-error);
+      color: var(--ui-error);
+    }
+
+    .toast.warning {
+      border-color: var(--ui-warning);
+      color: var(--ui-warning);
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ============ 模态确认 ============ */
+    .modal-mask {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      z-index: 90;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-mask.show {
+      display: flex;
+    }
+
+    .modal {
+      background: var(--ui-bg-card);
+      border-radius: 14px;
+      box-shadow: var(--shadow-md);
+      max-width: 420px;
+      width: 100%;
+      overflow: hidden;
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 20px;
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--ui-warning);
+    }
+
+    .modal-body {
+      padding: 4px 20px 16px;
+      color: var(--ui-text-muted);
+      font-size: 14px;
+    }
+
+    .modal-foot {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding: 0 20px 18px;
+    }
+  </style>
 </head>
+
 <body>
 
-<!-- ============ 图标库 ============ -->
-<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
-  <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-  </symbol>
-  <symbol id="i-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>
-  </symbol>
-  <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-  </symbol>
-  <symbol id="i-stop-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="12" cy="12" r="10"/><rect width="4" height="4" x="10" y="10"/>
-  </symbol>
-  <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <polygon points="6 3 20 12 6 21 6 3"/>
-  </symbol>
-  <symbol id="i-rotate-cw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/>
-  </symbol>
-  <symbol id="i-external-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-  </symbol>
-  <symbol id="i-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
-  </symbol>
-  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
-  </symbol>
-  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>
-  </symbol>
-  <symbol id="i-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/>
-  </symbol>
-  <symbol id="i-radio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="12" cy="12" r="2"/><path d="M4.93 19.07a10 10 0 0 1 0-14.14"/><path d="M7.76 16.24a6 6 0 0 1 0-8.49"/><path d="M16.24 16.24a6 6 0 0 0 0-8.49"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
-  </symbol>
-  <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>
-  </symbol>
-  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>
-  </symbol>
-  <symbol id="i-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/>
-  </symbol>
-  <symbol id="i-loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-  </symbol>
-  <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-  </symbol>
-  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/>
-  </symbol>
-  <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>
-  </symbol>
-  <symbol id="i-chev-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m15 18-6-6 6-6"/>
-  </symbol>
-  <symbol id="i-chev-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m9 18 6-6-6-6"/>
-  </symbol>
-  <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-  </symbol>
-  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
-    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-  </symbol>
-  <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="12" cy="12" r="10"/>
-    <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
-    <path d="M2 12h20"/>
-  </symbol>
-  <symbol id="i-wrench" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-  </symbol>
-  <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
-  </symbol>
-  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
-  </symbol>
-  <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>
-  </symbol>
-</svg>
+  <!-- ============ 图标库 ============ -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+    <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <polyline points="9 22 9 12 15 12 15 22" />
+    </symbol>
+    <symbol id="i-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+      <path d="M10 9H8" />
+      <path d="M16 13H8" />
+      <path d="M16 17H8" />
+    </symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </symbol>
+    <symbol id="i-stop-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <rect width="4" height="4" x="10" y="10" />
+    </symbol>
+    <symbol id="i-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <polygon points="6 3 20 12 6 21 6 3" />
+    </symbol>
+    <symbol id="i-rotate-cw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+    </symbol>
+    <symbol id="i-external-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="M3 6h18" />
+      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+      <line x1="10" x2="10" y1="11" y2="17" />
+      <line x1="14" x2="14" y1="11" y2="17" />
+    </symbol>
+    <symbol id="i-server" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <rect width="20" height="8" x="2" y="2" rx="2" ry="2" />
+      <rect width="20" height="8" x="2" y="14" rx="2" ry="2" />
+      <line x1="6" x2="6.01" y1="6" y2="6" />
+      <line x1="6" x2="6.01" y1="18" y2="18" />
+    </symbol>
+    <symbol id="i-radio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <circle cx="12" cy="12" r="2" />
+      <path d="M4.93 19.07a10 10 0 0 1 0-14.14" />
+      <path d="M7.76 16.24a6 6 0 0 1 0-8.49" />
+      <path d="M16.24 16.24a6 6 0 0 0 0-8.49" />
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+    </symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path
+        d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+    </symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path
+        d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+    </symbol>
+    <symbol id="i-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="m7.5 4.27 9 5.15" />
+      <path
+        d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+      <path d="M3.3 7 12 12l8.7-5" />
+      <path d="M12 22V12" />
+    </symbol>
+    <symbol id="i-loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </symbol>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="M21.801 10A10 10 0 1 1 17 3.335" />
+      <path d="m9 11 3 3L22 4" />
+    </symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </symbol>
+    <symbol id="i-chev-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="m15 18-6-6 6-6" />
+    </symbol>
+    <symbol id="i-chev-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+      stroke-linecap="round" stroke-linejoin="round">
+      <path d="m9 18 6-6-6-6" />
+    </symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+    </symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+      <path d="M2 12h20" />
+    </symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path
+        d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+    </symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2" />
+      <path d="M12 20v2" />
+      <path d="m4.93 4.93 1.41 1.41" />
+      <path d="m17.66 17.66 1.41 1.41" />
+      <path d="M2 12h2" />
+      <path d="M20 12h2" />
+      <path d="m6.34 17.66-1.41 1.41" />
+      <path d="m19.07 4.93-1.41 1.41" />
+    </symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+    </symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round">
+      <rect width="20" height="14" x="2" y="3" rx="2" />
+      <line x1="8" x2="16" y1="21" y2="21" />
+      <line x1="12" x2="12" y1="17" y2="21" />
+    </symbol>
+  </svg>
 
-<div class="layout">
-  <!-- ============ 侧边栏 ============ -->
-  <aside class="sidebar">
-    <div class="sidebar-brand">
-      <img class="brand-logo" src="./logo.png" alt="QwenPaw">
-      <div>
-        <div class="brand-text">QwenPaw 控制台</div>
-        <div class="brand-sub">fnOS 服务管理</div>
+  <div class="layout">
+    <!-- ============ 侧边栏 ============ -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <img class="brand-logo" src="./logo.png" alt="QwenPaw">
+        <div>
+          <div class="brand-text">QwenPaw 控制台</div>
+          <div class="brand-sub">fnOS 服务管理</div>
+        </div>
       </div>
-    </div>
-    <nav class="sidebar-nav">
-      <button class="nav-item active" data-view="overview">
-        <svg class="icon-sm"><use href="#i-home"/></svg>
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-view="overview">
+          <svg class="icon-sm">
+            <use href="#i-home" />
+          </svg>
+          控制台
+        </button>
+        <button class="nav-item" data-view="logs">
+          <svg class="icon-sm">
+            <use href="#i-file-text" />
+          </svg>
+          运行日志
+        </button>
+      </nav>
+      <div class="sidebar-foot-nav">
+        <div class="sidebar-divider"></div>
+        <button class="nav-item" data-view="gateway">
+          <svg class="icon-sm">
+            <use href="#i-shield" />
+          </svg>
+          飞牛统一网关
+        </button>
+        <button class="nav-item" data-view="settings">
+          <svg class="icon-sm">
+            <use href="#i-package" />
+          </svg>
+          应用设置
+        </button>
+      </div>
+      <div class="sidebar-footer">QwenPaw-FNOS · 繁荼分发版</div>
+    </aside>
+
+    <!-- ============ 主内容 ============ -->
+    <main class="content">
+      <div class="view-inner">
+
+        <!-- ===== 概览视图 ===== -->
+        <section id="view-overview" class="view active">
+          <div class="card status-card" style="background:var(--ui-bg-card);">
+            <div class="status-left">
+              <div class="status-badge-wrap">
+                <div id="statusIcon" class="status-icon stopped">
+                  <svg class="icon-lg">
+                    <use id="statusIconUse" href="#i-stop-circle" />
+                  </svg>
+                </div>
+                <div id="statusDot" class="status-dot"></div>
+              </div>
+              <div>
+                <div class="status-title-row">
+                  <span id="statusTitle" class="status-title">已停止</span>
+                  <span id="statusBadge" class="badge stopped">Stopped</span>
+                </div>
+                <p id="statusDesc" class="status-desc">QwenPaw 服务未运行</p>
+              </div>
+            </div>
+            <div id="statusActions" class="status-actions">
+              <button id="btnStart" class="btn btn-primary btn-lg" onclick="doAction('start')">
+                <svg class="icon-sm">
+                  <use href="#i-play" />
+                </svg>启动服务
+              </button>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-item">
+              <div class="stat-label">进程 ID (PID)</div>
+              <div id="statPid" class="stat-value">-</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">已运行</div>
+              <div id="statRuntime" class="stat-value">-</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">当前版本</div>
+              <div id="statVersion" class="stat-value">-</div>
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="card">
+              <div class="card-header">
+                <svg class="icon-sm" style="color:var(--ui-primary)">
+                  <use href="#i-zap" />
+                </svg>
+                快速操作
+              </div>
+              <div class="card-body">
+                <div class="action-row">
+                  <div class="action-info">
+                    <div class="action-ic" style="background:var(--ui-primary-soft);color:var(--ui-primary);">
+                      <svg class="icon-sm">
+                        <use href="#i-external-link" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="action-title">打开 QwenPaw</div>
+                      <div class="action-sub">访问 QwenPaw Web 界面</div>
+                    </div>
+                  </div>
+                  <button id="btnOpen" class="btn btn-danger btn-xs" disabled onclick="openQwenPaw()">
+                    <svg class="icon-sm">
+                      <use href="#i-external-link" />
+                    </svg>打开
+                  </button>
+                </div>
+                <div class="action-row">
+                  <div class="action-info">
+                    <div class="action-ic" style="background:var(--ui-info-soft);color:var(--ui-info);">
+                      <svg class="icon-sm">
+                        <use href="#i-file-text" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="action-title">查看日志</div>
+                      <div class="action-sub">查看服务运行日志</div>
+                    </div>
+                  </div>
+                  <button class="btn btn-outline btn-xs" onclick="switchView('logs')">
+                    <svg class="icon-sm">
+                      <use href="#i-arrow-right" />
+                    </svg>查看
+                  </button>
+                </div>
+                <div class="action-row">
+                  <div class="action-info">
+                    <div class="action-ic" style="background:var(--ui-warning-soft);color:var(--ui-warning);">
+                      <svg class="icon-sm">
+                        <use href="#i-package" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="action-title">检查更新</div>
+                      <div class="action-sub" id="quickUpdateSub">当前安装版本 -</div>
+                    </div>
+                  </div>
+                  <button class="btn btn-outline btn-xs" id="btnQuickCheckUpdate" onclick="checkUpdate()">
+                    <svg class="icon-sm">
+                      <use href="#i-search" />
+                    </svg>检查
+                  </button>
+                </div>
+                <div class="action-row" style="margin-bottom:0">
+                  <div class="action-info">
+                    <div class="action-ic" style="background:var(--ui-primary-soft);color:var(--ui-primary);">
+                      <svg class="icon-sm">
+                        <use href="#i-rotate-cw" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div class="action-title">应用更新</div>
+                      <div class="action-sub">生成升级引导并跳转发布页</div>
+                    </div>
+                  </div>
+                  <button class="btn btn-primary btn-xs" onclick="doUpgrade()">
+                    <svg class="icon-sm">
+                      <use href="#i-rotate-cw" />
+                    </svg>更新
+                  </button>
+                </div>
+                <div id="quickUpdateResult" style="margin-top:10px"></div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <svg class="icon-sm" style="color:var(--ui-info)">
+                  <use href="#i-server" />
+                </svg>
+                服务信息
+              </div>
+              <div class="card-body">
+                <div class="service-row">
+                  <div class="service-ic" style="background:var(--ui-success-soft);color:var(--ui-success);">
+                    <svg class="icon-sm">
+                      <use href="#i-radio" />
+                    </svg>
+                  </div>
+                  <div style="min-width:0">
+                    <div class="service-label">服务端口</div>
+                    <div id="svcPort" class="service-value">-</div>
+                  </div>
+                </div>
+                <div class="service-row">
+                  <div class="service-ic" style="background:var(--ui-primary-soft);color:var(--ui-primary);">
+                    <svg class="icon-sm">
+                      <use href="#i-folder" />
+                    </svg>
+                  </div>
+                  <div style="min-width:0">
+                    <div class="service-label">工作目录</div>
+                    <div id="svcWorkdir" class="service-value">-</div>
+                  </div>
+                </div>
+                <div class="service-row">
+                  <div class="service-ic" style="background:var(--ui-warning-soft);color:var(--ui-warning);">
+                    <svg class="icon-sm">
+                      <use href="#i-shield" />
+                    </svg>
+                  </div>
+                  <div style="min-width:0">
+                    <div class="service-label">认证状态</div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
+                      <span id="svcAuthText" class="service-value">-</span>
+                      <span id="svcAuthChip" class="auth-chip off">未认证</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="service-row">
+                  <div class="service-ic" style="background:var(--ui-info-soft);color:var(--ui-info);">
+                    <svg class="icon-sm">
+                      <use href="#i-package" />
+                    </svg>
+                  </div>
+                  <div style="min-width:0">
+                    <div class="service-label">当前版本</div>
+                    <div id="svcVersion" class="service-value">-</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== 日志视图 ===== -->
+        <section id="view-logs" class="view">
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">运行日志</h1>
+              <p class="page-sub">查看 QwenPaw 运行日志（最新 500 条）</p>
+            </div>
+            <div class="toolbar">
+              <div class="switch-wrap">
+                <span>自动刷新</span>
+                <button id="autoRefreshSwitch" class="switch on" onclick="toggleAutoRefresh()"
+                  aria-label="自动刷新"></button>
+              </div>
+              <button class="btn btn-outline" id="btnRefreshLogs" onclick="fetchLogs(true)">
+                <svg class="icon-sm">
+                  <use href="#i-rotate-cw" />
+                </svg>刷新
+              </button>
+              <button class="btn btn-error-soft" onclick="confirmClearLogs()">
+                <svg class="icon-sm">
+                  <use href="#i-trash" />
+                </svg>清空
+              </button>
+            </div>
+          </div>
+
+          <div class="filter-row">
+            <div class="input input-search">
+              <svg class="icon-sm" style="color:var(--ui-text-muted)">
+                <use href="#i-search" />
+              </svg>
+              <input id="logFilter" type="text" placeholder="筛选日志内容..." oninput="onFilterChange()">
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:13px;color:var(--ui-text-muted)">每页</span>
+              <select id="pageSizeSel" class="select" onchange="onPageSizeChange()">
+                <option value="10">10 / 页</option>
+                <option value="20">20 / 页</option>
+                <option value="50" selected>50 / 页</option>
+                <option value="100">100 / 页</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="logList"></div>
+
+          <div id="pagerRow" class="pager-row" style="display:none">
+            <div id="pagerTotal" class="pager-total"></div>
+            <div id="pager" class="pager"></div>
+          </div>
+        </section>
+
+        <!-- ===== 飞牛统一网关视图 ===== -->
+        <section id="view-gateway" class="view">
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">飞牛统一网关</h1>
+              <p class="page-sub">单端口 HTTP/HTTPS 自适应反代 · 外部访问与密码鉴权</p>
+            </div>
+            <div class="toolbar">
+              <button class="btn btn-outline" onclick="loadGatewayConfig(true)">
+                <svg class="icon-sm">
+                  <use href="#i-rotate-cw" />
+                </svg>刷新
+              </button>
+              <button class="btn btn-primary" id="btnSaveGateway" onclick="saveGatewayConfig()">
+                <svg class="icon-sm">
+                  <use href="#i-check" />
+                </svg>保存设置
+              </button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <svg class="icon-sm" style="color:var(--ui-primary)">
+                <use href="#i-server" />
+              </svg>
+              核心服务
+            </div>
+            <div class="card-body">
+              <div id="gwStatus" class="gw-status off">
+                <span class="gw-dot"></span>
+                <span id="gwStatusText">正在获取状态...</span>
+              </div>
+              <div class="form-grid">
+                <div class="form-item">
+                  <label>反向代理端口</label>
+                  <input id="gwProxyPort" type="number" min="1" max="65535" class="input" placeholder="2280">
+                  <p class="form-hint">对外暴露的代理端口，单端口同时支持 HTTP 与 HTTPS（HTTPS 为自签名证书，浏览器需手动信任）</p>
+                </div>
+                <div class="form-item">
+                  <label>访问密码</label>
+                  <input id="gwPassword" type="password" class="input" placeholder="留空则不启用密码保护"
+                    autocomplete="new-password">
+                  <p class="form-hint" id="gwPwdHint">访问该端口前需输入的密码；留空为不启用</p>
+                </div>
+                <div class="form-item full">
+                  <label>打开方式</label>
+                  <div class="radio-row" id="gwModeRow">
+                    <label><input type="radio" name="gwMode" value="fngateway" checked> 飞牛网关</label>
+                    <label><input type="radio" name="gwMode" value="port"> 反代端口</label>
+                    <label><input type="radio" name="gwMode" value="custom"> 自定义地址</label>
+                  </div>
+                  <p class="form-hint">决定概览页「打开 QwenPaw」按钮的访问链路</p>
+                </div>
+                <div class="form-item full" id="gwCustomRow" style="display:none">
+                  <label>自定义外部访问地址</label>
+                  <input id="gwCustomUrl" type="text" class="input" placeholder="例如 https://qwenpaw.example.com:2280">
+                  <p class="form-hint">点击「打开 QwenPaw」时跳转的绝对 URL</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ===== 应用设置视图 ===== -->
+        <section id="view-settings" class="view">
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">应用设置</h1>
+              <p class="page-sub">外观 · 网络代理 · 重置密码 · 重置修复</p>
+            </div>
+            <div class="toolbar">
+              <button class="btn btn-outline" onclick="loadSettings()">
+                <svg class="icon-sm">
+                  <use href="#i-rotate-cw" />
+                </svg>刷新
+              </button>
+            </div>
+          </div>
+
+          <!-- 外观（皮肤模式：浅色 / 深色 / 跟随系统） -->
+          <div class="card">
+            <div class="card-header">
+              <svg class="icon-sm" style="color:var(--ui-primary)">
+                <use href="#i-monitor" />
+              </svg>
+              外观
+            </div>
+            <div class="card-body">
+              <label>皮肤模式</label>
+              <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+                <label class="theme-option" style="display:flex;align-items:center;gap:12px;cursor:pointer">
+                  <input type="radio" name="themeMode" value="auto" onchange="applyTheme('auto')">
+                  <svg class="icon-sm" style="color:var(--ui-text-muted)">
+                    <use href="#i-monitor" />
+                  </svg>
+                  <div>
+                    <div style="font-size:14px;font-weight:600">跟随系统</div>
+                    <div class="form-hint" style="margin:0">自动匹配系统的深色 / 浅色偏好</div>
+                  </div>
+                </label>
+                <label class="theme-option" style="display:flex;align-items:center;gap:12px;cursor:pointer">
+                  <input type="radio" name="themeMode" value="light" onchange="applyTheme('light')">
+                  <svg class="icon-sm" style="color:var(--ui-warning)">
+                    <use href="#i-sun" />
+                  </svg>
+                  <div>
+                    <div style="font-size:14px;font-weight:600">浅色</div>
+                    <div class="form-hint" style="margin:0">始终使用浅色主题</div>
+                  </div>
+                </label>
+                <label class="theme-option" style="display:flex;align-items:center;gap:12px;cursor:pointer">
+                  <input type="radio" name="themeMode" value="dark" onchange="applyTheme('dark')">
+                  <svg class="icon-sm" style="color:var(--ui-primary)">
+                    <use href="#i-moon" />
+                  </svg>
+                  <div>
+                    <div style="font-size:14px;font-weight:600">深色</div>
+                    <div class="form-hint" style="margin:0">始终使用深色主题</div>
+                  </div>
+                </label>
+              </div>
+              <p class="form-hint" style="margin-top:14px">选择会即时生效并保存在浏览器本地。</p>
+            </div>
+          </div>
+
+          <!-- 网络代理 -->
+          <div class="card">
+            <div class="card-header">
+              <svg class="icon-sm" style="color:var(--ui-info)">
+                <use href="#i-globe" />
+              </svg>
+              网络代理
+            </div>
+            <div class="card-body">
+              <div class="form-grid">
+                <div class="form-item">
+                  <label>启用代理</label>
+                  <button id="npSwitch" class="switch" onclick="toggleNp()" aria-label="启用网络代理"></button>
+                </div>
+                <div class="form-item">
+                  <label>代理类型</label>
+                  <select id="npType" class="select">
+                    <option value="http">HTTP</option>
+                    <option value="https">HTTPS</option>
+                    <option value="socks5">SOCKS5</option>
+                  </select>
+                </div>
+                <div class="form-item">
+                  <label>代理主机</label>
+                  <input id="npHost" type="text" class="input" placeholder="例如 192.168.1.10">
+                </div>
+                <div class="form-item">
+                  <label>代理端口</label>
+                  <input id="npPort" type="number" min="1" max="65535" class="input" placeholder="例如 1080">
+                </div>
+                <div class="form-item">
+                  <label>用户名（可选）</label>
+                  <input id="npUser" type="text" class="input" autocomplete="off">
+                </div>
+                <div class="form-item">
+                  <label>密码（可选）</label>
+                  <input id="npPass" type="password" class="input" autocomplete="new-password" placeholder="留空则保留原密码">
+                </div>
+              </div>
+              <div class="toolbar" style="margin-top:14px">
+                <button class="btn btn-primary" id="btnSaveProxy" onclick="saveNetworkProxy()">
+                  <svg class="icon-sm">
+                    <use href="#i-check" />
+                  </svg>保存代理
+                </button>
+              </div>
+              <p class="form-hint">代理将注入 QwenPaw 服务的出站环境变量（HTTP_PROXY / HTTPS_PROXY / ALL_PROXY），用于访问 GitHub
+                等外部服务；保存后需重启 QwenPaw 生效。配置代理可让「检查更新」在受限网络下正常工作。</p>
+            </div>
+          </div>
+
+          <!-- 重置密码 -->
+          <div class="card">
+            <div class="card-header">
+              <svg class="icon-sm" style="color:var(--ui-warning)">
+                <use href="#i-lock" />
+              </svg>
+              重置访问密码
+            </div>
+            <div class="card-body">
+              <div class="form-grid">
+                <div class="form-item full" id="rpCurrentRow" style="display:none">
+                  <label>当前密码</label>
+                  <input id="rpCurrent" type="password" class="input" autocomplete="current-password">
+                  <p class="form-hint">已设置访问密码，需输入当前密码确认身份（防止外网控制台被恶意改密）</p>
+                </div>
+                <div class="form-item">
+                  <label>新密码</label>
+                  <input id="rpNew" type="password" class="input" autocomplete="new-password" placeholder="至少 4 位">
+                </div>
+                <div class="form-item">
+                  <label>确认新密码</label>
+                  <input id="rpConfirm" type="password" class="input" autocomplete="new-password">
+                </div>
+              </div>
+              <div class="toolbar" style="margin-top:14px">
+                <button class="btn btn-warning" onclick="resetPassword()">
+                  <svg class="icon-sm">
+                    <use href="#i-lock" />
+                  </svg>重置密码
+                </button>
+              </div>
+              <p class="form-hint">重置后旧会话将全部失效，需使用新密码重新访问网关。请在受信任的网络环境中操作。</p>
+            </div>
+          </div>
+
+          <!-- 重置修复 -->
+          <div class="card">
+            <div class="card-header">
+              <svg class="icon-sm" style="color:var(--ui-error)">
+                <use href="#i-wrench" />
+              </svg>
+              重置与修复
+            </div>
+            <div class="card-body">
+              <div class="action-row">
+                <div>
+                  <div class="action-title">重置运行环境</div>
+                  <div class="action-sub">停止服务 → 清空运行日志 → 重新启动</div>
+                </div>
+                <button class="btn btn-outline" onclick="confirmResetRuntime()">
+                  <svg class="icon-sm">
+                    <use href="#i-rotate-cw" />
+                  </svg>重置
+                </button>
+              </div>
+              <div class="action-row">
+                <div>
+                  <div class="action-title">重启服务</div>
+                  <div class="action-sub">不清理任何数据，仅重启 QwenPaw 进程</div>
+                </div>
+                <button class="btn btn-outline" onclick="doAction('restart')">
+                  <svg class="icon-sm">
+                    <use href="#i-rotate-cw" />
+                  </svg>重启
+                </button>
+              </div>
+              <div class="action-row">
+                <div>
+                  <div class="action-title">修复服务</div>
+                  <div class="action-sub">重启 QwenPaw 服务以尝试从卡死/异常状态恢复</div>
+                </div>
+                <button class="btn btn-error-soft" onclick="confirmRepair()">
+                  <svg class="icon-sm">
+                    <use href="#i-wrench" />
+                  </svg>修复
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- ============ 移动端 TabBar ============ -->
+    <nav class="tabbar">
+      <button class="tabbar-item active" data-view="overview">
+        <svg class="icon">
+          <use href="#i-home" />
+        </svg>
         控制台
       </button>
-      <button class="nav-item" data-view="logs">
-        <svg class="icon-sm"><use href="#i-file-text"/></svg>
-        运行日志
+      <button class="tabbar-item" data-view="logs">
+        <svg class="icon">
+          <use href="#i-file-text" />
+        </svg>
+        日志
+      </button>
+      <button class="tabbar-item" data-view="gateway">
+        <svg class="icon">
+          <use href="#i-shield" />
+        </svg>
+        网关
+      </button>
+      <button class="tabbar-item" data-view="settings">
+        <svg class="icon">
+          <use href="#i-package" />
+        </svg>
+        设置
       </button>
     </nav>
-    <div class="sidebar-foot-nav">
-      <div class="sidebar-divider"></div>
-      <button class="nav-item" data-view="gateway">
-        <svg class="icon-sm"><use href="#i-shield"/></svg>
-        飞牛统一网关
-      </button>
-      <button class="nav-item" data-view="settings">
-        <svg class="icon-sm"><use href="#i-package"/></svg>
-        应用设置
-      </button>
-    </div>
-    <div class="sidebar-footer">QwenPaw-FNOS · 繁荼分发版</div>
-  </aside>
+  </div>
 
-  <!-- ============ 主内容 ============ -->
-  <main class="content">
-    <div class="view-inner">
+  <!-- ============ Toast ============ -->
+  <div id="toastWrap" class="toast-wrap"></div>
 
-      <!-- ===== 概览视图 ===== -->
-      <section id="view-overview" class="view active">
-        <div class="card status-card" style="background:var(--ui-bg-card);">
-          <div class="status-left">
-            <div class="status-badge-wrap">
-              <div id="statusIcon" class="status-icon stopped">
-                <svg class="icon-lg"><use id="statusIconUse" href="#i-stop-circle"/></svg>
-              </div>
-              <div id="statusDot" class="status-dot"></div>
-            </div>
-            <div>
-              <div class="status-title-row">
-                <span id="statusTitle" class="status-title">已停止</span>
-                <span id="statusBadge" class="badge stopped">Stopped</span>
-              </div>
-              <p id="statusDesc" class="status-desc">QwenPaw 服务未运行</p>
-            </div>
-          </div>
-          <div id="statusActions" class="status-actions">
-            <button id="btnStart" class="btn btn-primary btn-lg" onclick="doAction('start')">
-              <svg class="icon-sm"><use href="#i-play"/></svg>启动服务
-            </button>
-          </div>
-        </div>
-
-        <div class="stats-grid">
-          <div class="stat-item">
-            <div class="stat-label">进程 ID (PID)</div>
-            <div id="statPid" class="stat-value">-</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">已运行</div>
-            <div id="statRuntime" class="stat-value">-</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-label">当前版本</div>
-            <div id="statVersion" class="stat-value">-</div>
-          </div>
-        </div>
-
-        <div class="grid-2">
-          <div class="card">
-            <div class="card-header">
-              <svg class="icon-sm" style="color:var(--ui-primary)"><use href="#i-zap"/></svg>
-              快速操作
-            </div>
-            <div class="card-body">
-              <div class="action-row">
-                <div class="action-info">
-                  <div class="action-ic" style="background:var(--ui-primary-soft);color:var(--ui-primary);">
-                    <svg class="icon-sm"><use href="#i-external-link"/></svg>
-                  </div>
-                  <div>
-                    <div class="action-title">打开 QwenPaw</div>
-                    <div class="action-sub">访问 QwenPaw Web 界面</div>
-                  </div>
-                </div>
-                <button id="btnOpen" class="btn btn-danger btn-xs" disabled onclick="openQwenPaw()">
-                  <svg class="icon-sm"><use href="#i-external-link"/></svg>打开
-                </button>
-              </div>
-              <div class="action-row">
-                <div class="action-info">
-                  <div class="action-ic" style="background:var(--ui-info-soft);color:var(--ui-info);">
-                    <svg class="icon-sm"><use href="#i-file-text"/></svg>
-                  </div>
-                  <div>
-                    <div class="action-title">查看日志</div>
-                    <div class="action-sub">查看服务运行日志</div>
-                  </div>
-                </div>
-                <button class="btn btn-outline btn-xs" onclick="switchView('logs')">
-                  <svg class="icon-sm"><use href="#i-arrow-right"/></svg>查看
-                </button>
-              </div>
-              <div class="action-row" style="margin-bottom:0">
-                <div class="action-info">
-                  <div class="action-ic" style="background:var(--ui-warning-soft);color:var(--ui-warning);">
-                    <svg class="icon-sm"><use href="#i-package"/></svg>
-                  </div>
-                  <div>
-                    <div class="action-title">检查更新</div>
-                    <div class="action-sub" id="quickUpdateSub">当前安装版本 -</div>
-                  </div>
-                </div>
-                <button class="btn btn-outline btn-xs" id="btnQuickCheckUpdate" onclick="checkUpdate()">
-                  <svg class="icon-sm"><use href="#i-search"/></svg>检查
-                </button>
-              </div>
-              <div id="quickUpdateResult" style="margin-top:10px"></div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-header">
-              <svg class="icon-sm" style="color:var(--ui-info)"><use href="#i-server"/></svg>
-              服务信息
-            </div>
-            <div class="card-body">
-              <div class="service-row">
-                <div class="service-ic" style="background:var(--ui-success-soft);color:var(--ui-success);">
-                  <svg class="icon-sm"><use href="#i-radio"/></svg>
-                </div>
-                <div style="min-width:0">
-                  <div class="service-label">服务端口</div>
-                  <div id="svcPort" class="service-value">-</div>
-                </div>
-              </div>
-              <div class="service-row">
-                <div class="service-ic" style="background:var(--ui-primary-soft);color:var(--ui-primary);">
-                  <svg class="icon-sm"><use href="#i-folder"/></svg>
-                </div>
-                <div style="min-width:0">
-                  <div class="service-label">工作目录</div>
-                  <div id="svcWorkdir" class="service-value">-</div>
-                </div>
-              </div>
-              <div class="service-row">
-                <div class="service-ic" style="background:var(--ui-warning-soft);color:var(--ui-warning);">
-                  <svg class="icon-sm"><use href="#i-shield"/></svg>
-                </div>
-                <div style="min-width:0">
-                  <div class="service-label">认证状态</div>
-                  <div style="display:flex;align-items:center;gap:8px;margin-top:2px">
-                    <span id="svcAuthText" class="service-value">-</span>
-                    <span id="svcAuthChip" class="auth-chip off">未认证</span>
-                  </div>
-                </div>
-              </div>
-              <div class="service-row">
-                <div class="service-ic" style="background:var(--ui-info-soft);color:var(--ui-info);">
-                  <svg class="icon-sm"><use href="#i-package"/></svg>
-                </div>
-                <div style="min-width:0">
-                  <div class="service-label">当前版本</div>
-                  <div id="svcVersion" class="service-value">-</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ===== 日志视图 ===== -->
-      <section id="view-logs" class="view">
-        <div class="page-head">
-          <div>
-            <h1 class="page-title">运行日志</h1>
-            <p class="page-sub">查看 QwenPaw 运行日志（最新 500 条）</p>
-          </div>
-          <div class="toolbar">
-            <div class="switch-wrap">
-              <span>自动刷新</span>
-              <button id="autoRefreshSwitch" class="switch on" onclick="toggleAutoRefresh()" aria-label="自动刷新"></button>
-            </div>
-            <button class="btn btn-outline" id="btnRefreshLogs" onclick="fetchLogs(true)">
-              <svg class="icon-sm"><use href="#i-rotate-cw"/></svg>刷新
-            </button>
-            <button class="btn btn-error-soft" onclick="confirmClearLogs()">
-              <svg class="icon-sm"><use href="#i-trash"/></svg>清空
-            </button>
-          </div>
-        </div>
-
-        <div class="filter-row">
-          <div class="input input-search">
-            <svg class="icon-sm" style="color:var(--ui-text-muted)"><use href="#i-search"/></svg>
-            <input id="logFilter" type="text" placeholder="筛选日志内容..." oninput="onFilterChange()">
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <span style="font-size:13px;color:var(--ui-text-muted)">每页</span>
-            <select id="pageSizeSel" class="select" onchange="onPageSizeChange()">
-              <option value="10">10 / 页</option>
-              <option value="20">20 / 页</option>
-              <option value="50" selected>50 / 页</option>
-              <option value="100">100 / 页</option>
-            </select>
-          </div>
-        </div>
-
-        <div id="logList"></div>
-
-        <div id="pagerRow" class="pager-row" style="display:none">
-          <div id="pagerTotal" class="pager-total"></div>
-          <div id="pager" class="pager"></div>
-        </div>
-      </section>
-
-      <!-- ===== 飞牛统一网关视图 ===== -->
-      <section id="view-gateway" class="view">
-        <div class="page-head">
-          <div>
-            <h1 class="page-title">飞牛统一网关</h1>
-            <p class="page-sub">单端口 HTTP/HTTPS 自适应反代 · 外部访问与密码鉴权</p>
-          </div>
-          <div class="toolbar">
-            <button class="btn btn-outline" onclick="loadGatewayConfig(true)">
-              <svg class="icon-sm"><use href="#i-rotate-cw"/></svg>刷新
-            </button>
-            <button class="btn btn-primary" id="btnSaveGateway" onclick="saveGatewayConfig()">
-              <svg class="icon-sm"><use href="#i-check"/></svg>保存设置
-            </button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <svg class="icon-sm" style="color:var(--ui-primary)"><use href="#i-server"/></svg>
-            核心服务
-          </div>
-          <div class="card-body">
-            <div id="gwStatus" class="gw-status off">
-              <span class="gw-dot"></span>
-              <span id="gwStatusText">正在获取状态...</span>
-            </div>
-            <div class="form-grid">
-              <div class="form-item">
-                <label>反向代理端口</label>
-                <input id="gwProxyPort" type="number" min="1" max="65535" class="input" placeholder="2280">
-                <p class="form-hint">对外暴露的代理端口，单端口同时支持 HTTP 与 HTTPS（HTTPS 为自签名证书，浏览器需手动信任）</p>
-              </div>
-              <div class="form-item">
-                <label>访问密码</label>
-                <input id="gwPassword" type="password" class="input" placeholder="留空则不启用密码保护" autocomplete="new-password">
-                <p class="form-hint" id="gwPwdHint">访问该端口前需输入的密码；留空为不启用</p>
-              </div>
-              <div class="form-item full">
-                <label>打开方式</label>
-                <div class="radio-row" id="gwModeRow">
-                  <label><input type="radio" name="gwMode" value="fngateway" checked> 飞牛网关</label>
-                  <label><input type="radio" name="gwMode" value="port"> 反代端口</label>
-                  <label><input type="radio" name="gwMode" value="custom"> 自定义地址</label>
-                </div>
-                <p class="form-hint">决定概览页「打开 QwenPaw」按钮的访问链路</p>
-              </div>
-              <div class="form-item full" id="gwCustomRow" style="display:none">
-                <label>自定义外部访问地址</label>
-                <input id="gwCustomUrl" type="text" class="input" placeholder="例如 https://qwenpaw.example.com:2280">
-                <p class="form-hint">点击「打开 QwenPaw」时跳转的绝对 URL</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-      </section>
-
-      <!-- ===== 应用设置视图 ===== -->
-      <section id="view-settings" class="view">
-        <div class="page-head">
-          <div>
-            <h1 class="page-title">应用设置</h1>
-            <p class="page-sub">外观 · 网络代理 · 重置密码 · 重置修复</p>
-          </div>
-          <div class="toolbar">
-            <button class="btn btn-outline" onclick="loadSettings()">
-              <svg class="icon-sm"><use href="#i-rotate-cw"/></svg>刷新
-            </button>
-          </div>
-        </div>
-
-        <!-- 外观（皮肤模式：浅色 / 深色 / 跟随系统） -->
-        <div class="card">
-          <div class="card-header">
-            <svg class="icon-sm" style="color:var(--ui-primary)"><use href="#i-monitor"/></svg>
-            外观
-          </div>
-          <div class="card-body">
-            <label>皮肤模式</label>
-            <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
-              <label class="theme-option" style="display:flex;align-items:center;gap:12px;cursor:pointer">
-                <input type="radio" name="themeMode" value="auto" onchange="applyTheme('auto')">
-                <svg class="icon-sm" style="color:var(--ui-text-muted)"><use href="#i-monitor"/></svg>
-                <div>
-                  <div style="font-size:14px;font-weight:600">跟随系统</div>
-                  <div class="form-hint" style="margin:0">自动匹配系统的深色 / 浅色偏好</div>
-                </div>
-              </label>
-              <label class="theme-option" style="display:flex;align-items:center;gap:12px;cursor:pointer">
-                <input type="radio" name="themeMode" value="light" onchange="applyTheme('light')">
-                <svg class="icon-sm" style="color:var(--ui-warning)"><use href="#i-sun"/></svg>
-                <div>
-                  <div style="font-size:14px;font-weight:600">浅色</div>
-                  <div class="form-hint" style="margin:0">始终使用浅色主题</div>
-                </div>
-              </label>
-              <label class="theme-option" style="display:flex;align-items:center;gap:12px;cursor:pointer">
-                <input type="radio" name="themeMode" value="dark" onchange="applyTheme('dark')">
-                <svg class="icon-sm" style="color:var(--ui-primary)"><use href="#i-moon"/></svg>
-                <div>
-                  <div style="font-size:14px;font-weight:600">深色</div>
-                  <div class="form-hint" style="margin:0">始终使用深色主题</div>
-                </div>
-              </label>
-            </div>
-            <p class="form-hint" style="margin-top:14px">选择会即时生效并保存在浏览器本地。</p>
-          </div>
-        </div>
-
-        <!-- 网络代理 -->
-        <div class="card">
-          <div class="card-header">
-            <svg class="icon-sm" style="color:var(--ui-info)"><use href="#i-globe"/></svg>
-            网络代理
-          </div>
-          <div class="card-body">
-            <div class="form-grid">
-              <div class="form-item">
-                <label>启用代理</label>
-                <button id="npSwitch" class="switch" onclick="toggleNp()" aria-label="启用网络代理"></button>
-              </div>
-              <div class="form-item">
-                <label>代理类型</label>
-                <select id="npType" class="select">
-                  <option value="http">HTTP</option>
-                  <option value="https">HTTPS</option>
-                  <option value="socks5">SOCKS5</option>
-                </select>
-              </div>
-              <div class="form-item">
-                <label>代理主机</label>
-                <input id="npHost" type="text" class="input" placeholder="例如 192.168.1.10">
-              </div>
-              <div class="form-item">
-                <label>代理端口</label>
-                <input id="npPort" type="number" min="1" max="65535" class="input" placeholder="例如 1080">
-              </div>
-              <div class="form-item">
-                <label>用户名（可选）</label>
-                <input id="npUser" type="text" class="input" autocomplete="off">
-              </div>
-              <div class="form-item">
-                <label>密码（可选）</label>
-                <input id="npPass" type="password" class="input" autocomplete="new-password" placeholder="留空则保留原密码">
-              </div>
-            </div>
-            <div class="toolbar" style="margin-top:14px">
-              <button class="btn btn-primary" id="btnSaveProxy" onclick="saveNetworkProxy()">
-                <svg class="icon-sm"><use href="#i-check"/></svg>保存代理
-              </button>
-            </div>
-            <p class="form-hint">代理将注入 QwenPaw 服务的出站环境变量（HTTP_PROXY / HTTPS_PROXY / ALL_PROXY），用于访问 GitHub 等外部服务；保存后需重启 QwenPaw 生效。配置代理可让「检查更新」在受限网络下正常工作。</p>
-          </div>
-        </div>
-
-        <!-- 重置密码 -->
-        <div class="card">
-          <div class="card-header">
-            <svg class="icon-sm" style="color:var(--ui-warning)"><use href="#i-lock"/></svg>
-            重置访问密码
-          </div>
-          <div class="card-body">
-            <div class="form-grid">
-              <div class="form-item full" id="rpCurrentRow" style="display:none">
-                <label>当前密码</label>
-                <input id="rpCurrent" type="password" class="input" autocomplete="current-password">
-                <p class="form-hint">已设置访问密码，需输入当前密码确认身份（防止外网控制台被恶意改密）</p>
-              </div>
-              <div class="form-item">
-                <label>新密码</label>
-                <input id="rpNew" type="password" class="input" autocomplete="new-password" placeholder="至少 4 位">
-              </div>
-              <div class="form-item">
-                <label>确认新密码</label>
-                <input id="rpConfirm" type="password" class="input" autocomplete="new-password">
-              </div>
-            </div>
-            <div class="toolbar" style="margin-top:14px">
-              <button class="btn btn-warning" onclick="resetPassword()">
-                <svg class="icon-sm"><use href="#i-lock"/></svg>重置密码
-              </button>
-            </div>
-            <p class="form-hint">重置后旧会话将全部失效，需使用新密码重新访问网关。请在受信任的网络环境中操作。</p>
-          </div>
-        </div>
-
-        <!-- 重置修复 -->
-        <div class="card">
-          <div class="card-header">
-            <svg class="icon-sm" style="color:var(--ui-error)"><use href="#i-wrench"/></svg>
-            重置与修复
-          </div>
-          <div class="card-body">
-            <div class="action-row">
-              <div>
-                <div class="action-title">重置运行环境</div>
-                <div class="action-sub">停止服务 → 清空运行日志 → 重新启动</div>
-              </div>
-              <button class="btn btn-outline" onclick="confirmResetRuntime()">
-                <svg class="icon-sm"><use href="#i-rotate-cw"/></svg>重置
-              </button>
-            </div>
-            <div class="action-row">
-              <div>
-                <div class="action-title">重启服务</div>
-                <div class="action-sub">不清理任何数据，仅重启 QwenPaw 进程</div>
-              </div>
-              <button class="btn btn-outline" onclick="doAction('restart')">
-                <svg class="icon-sm"><use href="#i-rotate-cw"/></svg>重启
-              </button>
-            </div>
-            <div class="action-row">
-              <div>
-                <div class="action-title">修复服务</div>
-                <div class="action-sub">重启 QwenPaw 服务以尝试从卡死/异常状态恢复</div>
-              </div>
-              <button class="btn btn-error-soft" onclick="confirmRepair()">
-                <svg class="icon-sm"><use href="#i-wrench"/></svg>修复
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-    </div>
-  </main>
-
-  <!-- ============ 移动端 TabBar ============ -->
-  <nav class="tabbar">
-    <button class="tabbar-item active" data-view="overview">
-      <svg class="icon"><use href="#i-home"/></svg>
-      控制台
-    </button>
-    <button class="tabbar-item" data-view="logs">
-      <svg class="icon"><use href="#i-file-text"/></svg>
-      日志
-    </button>
-    <button class="tabbar-item" data-view="gateway">
-      <svg class="icon"><use href="#i-shield"/></svg>
-      网关
-    </button>
-    <button class="tabbar-item" data-view="settings">
-      <svg class="icon"><use href="#i-package"/></svg>
-      设置
-    </button>
-  </nav>
-</div>
-
-<!-- ============ Toast ============ -->
-<div id="toastWrap" class="toast-wrap"></div>
-
-<!-- ============ 确认弹窗 ============ -->
-<div id="confirmMask" class="modal-mask">
-  <div class="modal">
-    <div class="modal-head">
-      <svg class="icon-sm"><use href="#i-alert"/></svg>
-      <span id="confirmTitle">确认操作</span>
-    </div>
-    <div id="confirmBody" class="modal-body"></div>
-    <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="closeConfirm()">取消</button>
-      <button id="confirmOk" class="btn btn-primary" onclick="confirmOkAction()">确认</button>
+  <!-- ============ 确认弹窗 ============ -->
+  <div id="confirmMask" class="modal-mask">
+    <div class="modal">
+      <div class="modal-head">
+        <svg class="icon-sm">
+          <use href="#i-alert" />
+        </svg>
+        <span id="confirmTitle">确认操作</span>
+      </div>
+      <div id="confirmBody" class="modal-body"></div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" onclick="closeConfirm()">取消</button>
+        <button id="confirmOk" class="btn btn-primary" onclick="confirmOkAction()">确认</button>
+      </div>
     </div>
   </div>
-</div>
 
-<script>
-/* ================= 状态 ================= */
-var state = {
-  running: false,
-  pid: '',
-  startAt: null,
-  version: '',
-  port: '',
-  workingDir: '',
-  authEnabled: false,
-  logs: [],
-  page: 1,
-  pageSize: 50,
-  filter: '',
-  autoRefresh: true,
-  view: 'overview',
-  busy: false
-};
-var gateway = {
-  proxyPort: 2280,
-  passwordSet: false,
-  mode: 'fngateway',
-  customUrl: '',
-  proxyRunning: false,
-  internalPort: '',
-  manifestVersion: '',
-  runtimeVersion: '',
-  networkProxy: {}
-};
-var runtimeTimer = null;
-var refreshTimer = null;
-var confirmAction = null;
+  <script>
+    /* ================= 状态 ================= */
+    var state = {
+      running: false,
+      pid: '',
+      startAt: null,
+      version: '',
+      port: '',
+      workingDir: '',
+      authEnabled: false,
+      logs: [],
+      page: 1,
+      pageSize: 50,
+      filter: '',
+      autoRefresh: true,
+      view: 'overview',
+      busy: false
+    };
+    var gateway = {
+      proxyPort: 2280,
+      passwordSet: false,
+      mode: 'fngateway',
+      customUrl: '',
+      proxyRunning: false,
+      internalPort: '',
+      manifestVersion: '',
+      runtimeVersion: '',
+      networkProxy: {}
+    };
+    var runtimeTimer = null;
+    var refreshTimer = null;
+    var confirmAction = null;
 
-/* ================= 工具 ================= */
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-  });
-}
-function toast(msg, type) {
-  var wrap = document.getElementById('toastWrap');
-  var el = document.createElement('div');
-  el.className = 'toast ' + (type || '');
-  el.textContent = msg;
-  wrap.appendChild(el);
-  setTimeout(function () { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 2600);
-  setTimeout(function () { el.remove(); }, 3000);
-}
-function fmtRuntime(startAt) {
-  if (!state.running || typeof startAt !== 'number' || !isFinite(startAt) || startAt <= 0) return '-';
-  var s = Math.max(0, Math.floor(Date.now() / 1000 - startAt));
-  var pad = function (n) { return String(n).padStart(2, '0'); };
-  var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600),
-      m = Math.floor((s % 3600) / 60), sec = s % 60;
-  var t = pad(h) + ':' + pad(m) + ':' + pad(sec);
-  return d > 0 ? d + '天 ' + t : t;
-}
+    /* ================= 工具 ================= */
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function toast(msg, type) {
+      var wrap = document.getElementById('toastWrap');
+      var el = document.createElement('div');
+      el.className = 'toast ' + (type || '');
+      el.textContent = msg;
+      wrap.appendChild(el);
+      setTimeout(function () { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 2600);
+      setTimeout(function () { el.remove(); }, 3000);
+    }
+    function fmtRuntime(startAt) {
+      if (!state.running || typeof startAt !== 'number' || !isFinite(startAt) || startAt <= 0) return '-';
+      var s = Math.max(0, Math.floor(Date.now() / 1000 - startAt));
+      var pad = function (n) { return String(n).padStart(2, '0'); };
+      var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600),
+        m = Math.floor((s % 3600) / 60), sec = s % 60;
+      var t = pad(h) + ':' + pad(m) + ':' + pad(sec);
+      return d > 0 ? d + '天 ' + t : t;
+    }
 
-/* ================= API ================= */
-function apiGet(path) {
-  return fetch(path, { headers: { 'Accept': 'application/json' } }).then(function (r) { return r.json(); });
-}
-function apiPost(path, body) {
-  var opts = { method: 'POST' };
-  if (body !== undefined) {
-    opts.headers = { 'Content-Type': 'application/json' };
-    opts.body = JSON.stringify(body);
-  }
-  return fetch(path, opts).then(function (r) { return r.json(); });
-}
-
-/* ================= 状态 ================= */
-function fetchStatus() {
-  return apiGet('api/status').then(function (d) {
-    if (!d || !d.success) return;
-    state.running = !!d.running;
-    state.pid = d.pid || '';
-    state.startAt = d.startAt || null;
-    state.version = d.version || '';
-    renderStatus();
-  }).catch(function () {});
-}
-function fetchConfig() {
-  return apiGet('api/config').then(function (d) {
-    if (!d || !d.success) return;
-    state.port = d.port || '';
-    state.workingDir = d.working_dir || '';
-    state.authEnabled = !!d.auth_enabled;
-    if (d.access_mode) gateway.mode = d.access_mode;
-    if (d.reverse_proxy_url) gateway.customUrl = d.reverse_proxy_url;
-    if (d.proxy_port) gateway.proxyPort = d.proxy_port;
-    renderStatus();
-  }).catch(function () {});
-}
-function renderStatus() {
-  var icon = document.getElementById('statusIcon');
-  var iconUse = document.getElementById('statusIconUse');
-  var dot = document.getElementById('statusDot');
-  var title = document.getElementById('statusTitle');
-  var badge = document.getElementById('statusBadge');
-  var desc = document.getElementById('statusDesc');
-  var btnOpen = document.getElementById('btnOpen');
-  var actions = document.getElementById('statusActions');
-
-  if (state.running) {
-    icon.className = 'status-icon running';
-    iconUse.setAttribute('href', '#i-activity');
-    dot.className = 'status-dot running';
-    title.textContent = '运行中';
-    badge.textContent = 'Active';
-    badge.className = 'badge active';
-    desc.textContent = 'QwenPaw 服务正在运行';
-  } else {
-    icon.className = 'status-icon stopped';
-    iconUse.setAttribute('href', '#i-stop-circle');
-    dot.className = 'status-dot';
-    title.textContent = '已停止';
-    badge.textContent = 'Stopped';
-    badge.className = 'badge stopped';
-    desc.textContent = 'QwenPaw 服务未运行';
-  }
-
-  document.getElementById('statPid').textContent = state.pid || '-';
-  document.getElementById('statRuntime').textContent = fmtRuntime(state.startAt);
-  document.getElementById('statVersion').textContent = state.version || '-';
-  var qsub = document.getElementById('quickUpdateSub');
-  if (qsub) qsub.textContent = '当前安装版本 ' + (state.version || '-') + '，检查 GitHub 最新发布';
-  document.getElementById('svcPort').textContent = state.port || '-';
-  document.getElementById('svcWorkdir').textContent = state.workingDir || '-';
-  document.getElementById('svcVersion').textContent = state.version || '-';
-
-  var authText = document.getElementById('svcAuthText');
-  var authChip = document.getElementById('svcAuthChip');
-  if (state.authEnabled) {
-    authText.textContent = '已启用';
-    authChip.textContent = '安全';
-    authChip.className = 'auth-chip on';
-  } else {
-    authText.textContent = '未启用';
-    authChip.textContent = '未认证';
-    authChip.className = 'auth-chip off';
-  }
-
-  btnOpen.disabled = !state.running;
-  renderActions(actions);
-}
-function renderActions(actions) {
-  if (state.busy) {
-    actions.innerHTML = '<button class="btn btn-outline btn-lg" disabled><span class="spinner"></span>处理中...</button>';
-    return;
-  }
-  if (state.running) {
-    actions.innerHTML =
-      '<button class="btn btn-outline btn-lg" onclick="doAction(\'stop\')">' +
-      '<svg class="icon-sm"><use href="#i-stop-circle"/></svg>停止</button>' +
-      '<button class="btn btn-primary btn-lg" onclick="doAction(\'restart\')">' +
-      '<svg class="icon-sm"><use href="#i-rotate-cw"/></svg>重启服务</button>' +
-      '<button class="btn btn-danger btn-lg" onclick="openQwenPaw()">' +
-      '<svg class="icon-sm"><use href="#i-external-link"/></svg>打开 QwenPaw</button>';
-  } else {
-    actions.innerHTML =
-      '<button class="btn btn-primary btn-lg" onclick="doAction(\'start\')">' +
-      '<svg class="icon-sm"><use href="#i-play"/></svg>启动服务</button>';
-  }
-}
-function tickRuntime() {
-  document.getElementById('statRuntime').textContent = fmtRuntime(state.startAt);
-}
-
-/* ================= 服务控制 ================= */
-function doAction(action) {
-  if (state.busy) return;
-  var doIt = function () {
-    state.busy = true;
-    renderActions(document.getElementById('statusActions'));
-    apiPost('api/' + action).then(function (d) {
-      state.busy = false;
-      if (d && d.success) {
-        toast(d.message || '操作成功', 'success');
-      } else {
-        toast((d && d.message) || '操作失败', 'error');
+    /* ================= API ================= */
+    function apiGet(path) {
+      return fetch(path, { headers: { 'Accept': 'application/json' } }).then(function (r) { return r.json(); });
+    }
+    function apiPost(path, body) {
+      var opts = { method: 'POST' };
+      if (body !== undefined) {
+        opts.headers = { 'Content-Type': 'application/json' };
+        opts.body = JSON.stringify(body);
       }
-      return fetchStatus();
-    }).then(function () {
-      renderActions(document.getElementById('statusActions'));
-    }).catch(function () {
-      state.busy = false;
-      toast('请求失败，请检查网络', 'error');
-      renderActions(document.getElementById('statusActions'));
+      return fetch(path, opts).then(function (r) { return r.json(); });
+    }
+
+    /* ================= 状态 ================= */
+    function fetchStatus() {
+      return apiGet('api/status').then(function (d) {
+        if (!d || !d.success) return;
+        state.running = !!d.running;
+        state.pid = d.pid || '';
+        state.startAt = d.startAt || null;
+        state.version = d.version || '';
+        renderStatus();
+      }).catch(function () { });
+    }
+    function fetchConfig() {
+      return apiGet('api/config').then(function (d) {
+        if (!d || !d.success) return;
+        state.port = d.port || '';
+        state.workingDir = d.working_dir || '';
+        state.authEnabled = !!d.auth_enabled;
+        if (d.access_mode) gateway.mode = d.access_mode;
+        if (d.reverse_proxy_url) gateway.customUrl = d.reverse_proxy_url;
+        if (d.proxy_port) gateway.proxyPort = d.proxy_port;
+        renderStatus();
+      }).catch(function () { });
+    }
+    function renderStatus() {
+      var icon = document.getElementById('statusIcon');
+      var iconUse = document.getElementById('statusIconUse');
+      var dot = document.getElementById('statusDot');
+      var title = document.getElementById('statusTitle');
+      var badge = document.getElementById('statusBadge');
+      var desc = document.getElementById('statusDesc');
+      var btnOpen = document.getElementById('btnOpen');
+      var actions = document.getElementById('statusActions');
+
+      if (state.running) {
+        icon.className = 'status-icon running';
+        iconUse.setAttribute('href', '#i-activity');
+        dot.className = 'status-dot running';
+        title.textContent = '运行中';
+        badge.textContent = 'Active';
+        badge.className = 'badge active';
+        desc.textContent = 'QwenPaw 服务正在运行';
+      } else {
+        icon.className = 'status-icon stopped';
+        iconUse.setAttribute('href', '#i-stop-circle');
+        dot.className = 'status-dot';
+        title.textContent = '已停止';
+        badge.textContent = 'Stopped';
+        badge.className = 'badge stopped';
+        desc.textContent = 'QwenPaw 服务未运行';
+      }
+
+      document.getElementById('statPid').textContent = state.pid || '-';
+      document.getElementById('statRuntime').textContent = fmtRuntime(state.startAt);
+      document.getElementById('statVersion').textContent = state.version || '-';
+      var qsub = document.getElementById('quickUpdateSub');
+      if (qsub) qsub.textContent = '当前安装版本 ' + (state.version || '-') + '，检查 GitHub 最新发布';
+      document.getElementById('svcPort').textContent = state.port || '-';
+      document.getElementById('svcWorkdir').textContent = state.workingDir || '-';
+      document.getElementById('svcVersion').textContent = state.version || '-';
+
+      var authText = document.getElementById('svcAuthText');
+      var authChip = document.getElementById('svcAuthChip');
+      if (state.authEnabled) {
+        authText.textContent = '已启用';
+        authChip.textContent = '安全';
+        authChip.className = 'auth-chip on';
+      } else {
+        authText.textContent = '未启用';
+        authChip.textContent = '未认证';
+        authChip.className = 'auth-chip off';
+      }
+
+      btnOpen.disabled = !state.running;
+      renderActions(actions);
+    }
+    function renderActions(actions) {
+      if (state.busy) {
+        actions.innerHTML = '<button class="btn btn-outline btn-lg" disabled><span class="spinner"></span>处理中...</button>';
+        return;
+      }
+      if (state.running) {
+        actions.innerHTML =
+          '<button class="btn btn-outline btn-lg" onclick="doAction(\'stop\')">' +
+          '<svg class="icon-sm"><use href="#i-stop-circle"/></svg>停止</button>' +
+          '<button class="btn btn-primary btn-lg" onclick="doAction(\'restart\')">' +
+          '<svg class="icon-sm"><use href="#i-rotate-cw"/></svg>重启服务</button>' +
+          '<button class="btn btn-danger btn-lg" onclick="openQwenPaw()">' +
+          '<svg class="icon-sm"><use href="#i-external-link"/></svg>打开 QwenPaw</button>';
+      } else {
+        actions.innerHTML =
+          '<button class="btn btn-primary btn-lg" onclick="doAction(\'start\')">' +
+          '<svg class="icon-sm"><use href="#i-play"/></svg>启动服务</button>';
+      }
+    }
+    function tickRuntime() {
+      document.getElementById('statRuntime').textContent = fmtRuntime(state.startAt);
+    }
+
+    /* ================= 服务控制 ================= */
+    function doAction(action) {
+      if (state.busy) return;
+      var doIt = function () {
+        state.busy = true;
+        renderActions(document.getElementById('statusActions'));
+        apiPost('api/' + action).then(function (d) {
+          state.busy = false;
+          if (d && d.success) {
+            toast(d.message || '操作成功', 'success');
+          } else {
+            toast((d && d.message) || '操作失败', 'error');
+          }
+          return fetchStatus();
+        }).then(function () {
+          renderActions(document.getElementById('statusActions'));
+        }).catch(function () {
+          state.busy = false;
+          toast('请求失败，请检查网络', 'error');
+          renderActions(document.getElementById('statusActions'));
+        });
+      };
+      if (action === 'stop') {
+        showConfirm('停止服务', '确定要停止 QwenPaw 服务吗？停止后桌面入口将无法访问。', function () { doIt(); });
+      } else {
+        doIt();
+      }
+    }
+    function openQwenPaw() {
+      if (!state.running) return;
+      var url;
+      if (gateway.mode === 'port' && gateway.proxyPort) {
+        url = 'http://' + window.location.hostname + ':' + gateway.proxyPort + '/';
+      } else if (gateway.mode === 'custom' && gateway.customUrl) {
+        url = gateway.customUrl;
+      } else {
+        // 飞牛统一网关子路径：由 fnOS nginx 经 web.sock 转发（HTTP 5666 / HTTPS 5667）。
+        // 使用 location.origin 保证外网（DDNS / FN Connect / 端口映射）访问时自动跟随当前域名。
+        url = window.location.origin + '/app/qwenpaw_yuexps/qwenpaw/';
+      }
+      window.open(url, '_blank');
+    }
+
+    /* ================= 飞牛统一网关 ================= */
+    function loadGatewayConfig(notify) {
+      return apiGet('api/gateway').then(function (d) {
+        if (!d || !d.success) return;
+        gateway.proxyPort = d.proxy_port || 2280;
+        gateway.passwordSet = !!d.password_set;
+        gateway.mode = d.access_mode || 'fngateway';
+        gateway.customUrl = d.reverse_proxy_url || '';
+        gateway.proxyRunning = !!d.proxy_running;
+        gateway.internalPort = d.internal_port || '';
+        gateway.manifestVersion = d.manifest_version || '';
+        gateway.runtimeVersion = d.runtime_version || '';
+        gateway.networkProxy = d.network_proxy || {};
+        renderGateway();
+        if (notify) toast('网关状态已刷新', 'success');
+      }).catch(function () {
+        if (notify) toast('获取网关配置失败', 'error');
+      });
+    }
+    function renderGateway() {
+      document.getElementById('gwProxyPort').value = gateway.proxyPort;
+      document.getElementById('gwPassword').value = '';
+      document.getElementById('gwPwdHint').textContent = gateway.passwordSet
+        ? '已设置访问密码（输入新密码可修改，留空保存则清除）'
+        : '访问该端口前需输入的密码；留空为不启用';
+      document.querySelectorAll('#gwModeRow input[name="gwMode"]').forEach(function (el) {
+        el.checked = (el.value === gateway.mode);
+      });
+      var customRow = document.getElementById('gwCustomRow');
+      customRow.style.display = (gateway.mode === 'custom') ? 'flex' : 'none';
+      document.getElementById('gwCustomUrl').value = gateway.customUrl;
+
+      var st = document.getElementById('gwStatus');
+      var stText = document.getElementById('gwStatusText');
+      if (gateway.proxyRunning) {
+        st.className = 'gw-status on';
+        stText.textContent = '反代端口监听中 · 端口 ' + gateway.proxyPort +
+          (gateway.passwordSet ? ' · 已启用访问密码' : ' · 未启用密码');
+      } else {
+        st.className = 'gw-status off';
+        stText.textContent = '反代端口未监听（保存设置后自动启动，或检查端口是否被占用）';
+      }
+    }
+    function saveGatewayConfig() {
+      var btn = document.getElementById('btnSaveGateway');
+      btn.disabled = true;
+      var oldHtml = btn.innerHTML;
+      btn.innerHTML = '<span class="spinner"></span>保存中';
+      var mode = (document.querySelector('#gwModeRow input[name="gwMode"]:checked') || {}).value || 'fngateway';
+      var payload = {
+        proxy_port: parseInt(document.getElementById('gwProxyPort').value, 10) || 0,
+        access_password: document.getElementById('gwPassword').value,
+        access_mode: mode,
+        reverse_proxy_url: document.getElementById('gwCustomUrl').value.trim()
+      };
+      apiPost('api/gateway', payload).then(function (d) {
+        if (d && d.success) {
+          toast(d.message || '设置已保存', 'success');
+          return loadGatewayConfig(false);
+        }
+        toast((d && d.message) || '保存失败', 'error');
+      }).catch(function () {
+        toast('保存失败，请检查网络', 'error');
+      }).finally(function () {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+      });
+    }
+    document.getElementById('gwModeRow').addEventListener('change', function (e) {
+      var customRow = document.getElementById('gwCustomRow');
+      customRow.style.display = (e.target.value === 'custom') ? 'flex' : 'none';
     });
-  };
-  if (action === 'stop') {
-    showConfirm('停止服务', '确定要停止 QwenPaw 服务吗？停止后桌面入口将无法访问。', function () { doIt(); });
-  } else {
-    doIt();
-  }
-}
-function openQwenPaw() {
-  if (!state.running) return;
-  var url;
-  if (gateway.mode === 'port' && gateway.proxyPort) {
-    url = 'http://' + window.location.hostname + ':' + gateway.proxyPort + '/';
-  } else if (gateway.mode === 'custom' && gateway.customUrl) {
-    url = gateway.customUrl;
-  } else {
-    // 飞牛统一网关子路径：由 fnOS nginx 经 web.sock 转发（HTTP 5666 / HTTPS 5667）。
-    // 使用 location.origin 保证外网（DDNS / FN Connect / 端口映射）访问时自动跟随当前域名。
-    url = window.location.origin + '/app/qwenpaw_yuexps/qwenpaw/';
-  }
-  window.open(url, '_blank');
-}
 
-/* ================= 飞牛统一网关 ================= */
-function loadGatewayConfig(notify) {
-  return apiGet('api/gateway').then(function (d) {
-    if (!d || !d.success) return;
-    gateway.proxyPort = d.proxy_port || 2280;
-    gateway.passwordSet = !!d.password_set;
-    gateway.mode = d.access_mode || 'fngateway';
-    gateway.customUrl = d.reverse_proxy_url || '';
-    gateway.proxyRunning = !!d.proxy_running;
-    gateway.internalPort = d.internal_port || '';
-    gateway.manifestVersion = d.manifest_version || '';
-    gateway.runtimeVersion = d.runtime_version || '';
-    gateway.networkProxy = d.network_proxy || {};
-    renderGateway();
-    if (notify) toast('网关状态已刷新', 'success');
-  }).catch(function () {
-    if (notify) toast('获取网关配置失败', 'error');
-  });
-}
-function renderGateway() {
-  document.getElementById('gwProxyPort').value = gateway.proxyPort;
-  document.getElementById('gwPassword').value = '';
-  document.getElementById('gwPwdHint').textContent = gateway.passwordSet
-    ? '已设置访问密码（输入新密码可修改，留空保存则清除）'
-    : '访问该端口前需输入的密码；留空为不启用';
-  document.querySelectorAll('#gwModeRow input[name="gwMode"]').forEach(function (el) {
-    el.checked = (el.value === gateway.mode);
-  });
-  var customRow = document.getElementById('gwCustomRow');
-  customRow.style.display = (gateway.mode === 'custom') ? 'flex' : 'none';
-  document.getElementById('gwCustomUrl').value = gateway.customUrl;
-
-  var st = document.getElementById('gwStatus');
-  var stText = document.getElementById('gwStatusText');
-  if (gateway.proxyRunning) {
-    st.className = 'gw-status on';
-    stText.textContent = '反代端口监听中 · 端口 ' + gateway.proxyPort +
-      (gateway.passwordSet ? ' · 已启用访问密码' : ' · 未启用密码');
-  } else {
-    st.className = 'gw-status off';
-    stText.textContent = '反代端口未监听（保存设置后自动启动，或检查端口是否被占用）';
-  }
-}
-function saveGatewayConfig() {
-  var btn = document.getElementById('btnSaveGateway');
-  btn.disabled = true;
-  var oldHtml = btn.innerHTML;
-  btn.innerHTML = '<span class="spinner"></span>保存中';
-  var mode = (document.querySelector('#gwModeRow input[name="gwMode"]:checked') || {}).value || 'fngateway';
-  var payload = {
-    proxy_port: parseInt(document.getElementById('gwProxyPort').value, 10) || 0,
-    access_password: document.getElementById('gwPassword').value,
-    access_mode: mode,
-    reverse_proxy_url: document.getElementById('gwCustomUrl').value.trim()
-  };
-  apiPost('api/gateway', payload).then(function (d) {
-    if (d && d.success) {
-      toast(d.message || '设置已保存', 'success');
-      return loadGatewayConfig(false);
+    /* ================= 皮肤模式（浅色 / 深色 / 跟随系统） ================= */
+    var THEME_KEY = 'qwenpaw_theme';
+    var THEME_META = {
+      auto: { icon: 'i-monitor', label: '跟随系统' },
+      light: { icon: 'i-sun', label: '浅色' },
+      dark: { icon: 'i-moon', label: '深色' }
+    };
+    function applyTheme(mode) {
+      if (!THEME_META[mode]) mode = 'auto';
+      document.documentElement.setAttribute('data-theme', mode);
+      try { localStorage.setItem(THEME_KEY, mode); } catch (e) { }
+      var radio = document.querySelector('input[name="themeMode"][value="' + mode + '"]');
+      if (radio) radio.checked = true;
     }
-    toast((d && d.message) || '保存失败', 'error');
-  }).catch(function () {
-    toast('保存失败，请检查网络', 'error');
-  }).finally(function () {
-    btn.disabled = false;
-    btn.innerHTML = oldHtml;
-  });
-}
-document.getElementById('gwModeRow').addEventListener('change', function (e) {
-  var customRow = document.getElementById('gwCustomRow');
-  customRow.style.display = (e.target.value === 'custom') ? 'flex' : 'none';
-});
-
-/* ================= 皮肤模式（浅色 / 深色 / 跟随系统） ================= */
-var THEME_KEY = 'qwenpaw_theme';
-var THEME_META = {
-  auto: { icon: 'i-monitor', label: '跟随系统' },
-  light: { icon: 'i-sun', label: '浅色' },
-  dark: { icon: 'i-moon', label: '深色' }
-};
-function applyTheme(mode) {
-  if (!THEME_META[mode]) mode = 'auto';
-  document.documentElement.setAttribute('data-theme', mode);
-  try { localStorage.setItem(THEME_KEY, mode); } catch (e) {}
-  var radio = document.querySelector('input[name="themeMode"][value="' + mode + '"]');
-  if (radio) radio.checked = true;
-}
-function initTheme() {
-  var m = 'auto';
-  try { m = localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) {}
-  applyTheme(m);
-}
-
-/* ================= 应用设置 ================= */
-function loadSettings() {
-  return loadGatewayConfig(false).then(function () {
-    var np = gateway.networkProxy || {};
-    document.getElementById('npSwitch').className = 'switch' + (np.enabled ? ' on' : '');
-    document.getElementById('npType').value = np.type || 'http';
-    document.getElementById('npHost').value = np.host || '';
-    document.getElementById('npPort').value = np.port || '';
-    document.getElementById('npUser').value = np.username || '';
-    document.getElementById('npPass').value = '';
-    document.getElementById('rpCurrentRow').style.display = gateway.passwordSet ? 'flex' : 'none';
-  }).catch(function () {});
-}
-function toggleNp() {
-  var sw = document.getElementById('npSwitch');
-  sw.className = 'switch' + (sw.className.indexOf('on') === -1 ? ' on' : '');
-}
-function checkUpdate() {
-  var btn = document.getElementById('btnQuickCheckUpdate');
-  var oldHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>检查中';
-  return apiGet('api/check_update').then(function (d) {
-    renderUpdateResult(d);
-  }).catch(function () {
-    renderUpdateResult(null);
-  }).finally(function () {
-    btn.disabled = false;
-    btn.innerHTML = oldHtml;
-  });
-}
-function renderUpdateResult(d) {
-  var box = document.getElementById('quickUpdateResult');
-  if (!d) {
-    box.innerHTML = '<div class="update-result error"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
-      '<span>检查更新失败，请检查网络或配置网络代理</span></div>';
-    return;
-  }
-  var cls = d.success ? (d.update_available ? 'warning' : 'success') : 'error';
-  var icon = d.update_available ? 'i-alert' : (d.success ? 'i-check' : 'i-alert');
-  var html = '<div class="update-result ' + cls + '">' +
-    '<svg class="icon-sm"><use href="#' + icon + '"/></svg>' +
-    '<span>' + esc(d.message || '') + '</span></div>';
-  if (d.update_available && d.release_url) {
-    html += '<div class="form-hint" style="margin-top:8px">发布页：<a href="' + esc(d.release_url) +
-      '" target="_blank" rel="noopener">' + esc(d.release_url) + '</a></div>';
-  }
-  box.innerHTML = html;
-}
-function doUpgrade() {
-  apiPost('api/action', { action: 'upgrade' }).then(function (d) {
-    toast((d && d.message) || '升级引导已生成', d && d.success ? 'success' : 'error');
-    if (d && d.release_url) window.open(d.release_url, '_blank');
-  }).catch(function () {
-    toast('升级请求失败', 'error');
-  });
-}
-function saveNetworkProxy() {
-  var btn = document.getElementById('btnSaveProxy');
-  var oldHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>保存中';
-  var np = {
-    enabled: document.getElementById('npSwitch').className.indexOf('on') !== -1,
-    type: document.getElementById('npType').value,
-    host: document.getElementById('npHost').value.trim(),
-    port: parseInt(document.getElementById('npPort').value, 10) || 0,
-    username: document.getElementById('npUser').value.trim()
-  };
-  var pass = document.getElementById('npPass').value;
-  if (pass) np.password = pass; // 留空则不携带 -> 后端保留原密码
-  var payload = {
-    proxy_port: gateway.proxyPort || 2280,
-    access_mode: gateway.mode || 'fngateway',
-    reverse_proxy_url: gateway.customUrl || '',
-    network_proxy: np
-    // 不携带 access_password -> 保留网关访问密码
-  };
-  apiPost('api/gateway', payload).then(function (d) {
-    if (d && d.success) {
-      toast(d.message || '代理设置已保存', 'success');
-      return loadSettings();
+    function initTheme() {
+      var m = 'auto';
+      try { m = localStorage.getItem(THEME_KEY) || 'auto'; } catch (e) { }
+      applyTheme(m);
     }
-    toast((d && d.message) || '保存失败', 'error');
-  }).catch(function () {
-    toast('保存失败，请检查网络', 'error');
-  }).finally(function () {
-    btn.disabled = false;
-    btn.innerHTML = oldHtml;
-  });
-}
-function resetPassword() {
-  var payload = {
-    new_password: document.getElementById('rpNew').value,
-    confirm_password: document.getElementById('rpConfirm').value
-  };
-  if (gateway.passwordSet) payload.current_password = document.getElementById('rpCurrent').value;
-  apiPost('api/reset_password', payload).then(function (d) {
-    if (d && d.success) {
-      toast(d.message || '访问密码已重置', 'success');
-      document.getElementById('rpCurrent').value = '';
-      document.getElementById('rpNew').value = '';
-      document.getElementById('rpConfirm').value = '';
-      return loadGatewayConfig(false);
-    }
-    toast((d && d.message) || '重置失败', 'error');
-  }).catch(function () {
-    toast('重置失败，请检查网络', 'error');
-  });
-}
-function confirmResetRuntime() {
-  showConfirm('重置运行环境', '将停止服务、清空运行日志并重新启动 QwenPaw。确定继续吗？', function () {
-    apiPost('api/action', { action: 'reset' }).then(function (d) {
-      toast((d && d.message) || '已重置运行环境', d && d.success ? 'success' : 'error');
-      return fetchStatus();
-    }).catch(function () { toast('重置失败', 'error'); });
-  });
-}
-function confirmRepair() {
-  showConfirm('修复服务', '将重启 QwenPaw 服务以尝试从卡死/异常状态恢复。确定继续吗？', function () {
-    apiPost('api/action', { action: 'repair' }).then(function (d) {
-      toast((d && d.message) || '已修复', d && d.success ? 'success' : 'error');
-      return fetchStatus();
-    }).catch(function () { toast('修复请求失败', 'error'); });
-  });
-}
 
-/* ================= 日志 ================= */
-function fetchLogs(notify) {
-  var btn = document.getElementById('btnRefreshLogs');
-  var oldHtml = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>刷新中';
-  return apiGet('api/logs?lines=500').then(function (d) {
-    if (d && d.success) {
-      state.logs = Array.isArray(d.logs) ? d.logs : [];
+    /* ================= 应用设置 ================= */
+    function loadSettings() {
+      return loadGatewayConfig(false).then(function () {
+        var np = gateway.networkProxy || {};
+        document.getElementById('npSwitch').className = 'switch' + (np.enabled ? ' on' : '');
+        document.getElementById('npType').value = np.type || 'http';
+        document.getElementById('npHost').value = np.host || '';
+        document.getElementById('npPort').value = np.port || '';
+        document.getElementById('npUser').value = np.username || '';
+        document.getElementById('npPass').value = '';
+        document.getElementById('rpCurrentRow').style.display = gateway.passwordSet ? 'flex' : 'none';
+      }).catch(function () { });
+    }
+    function toggleNp() {
+      var sw = document.getElementById('npSwitch');
+      sw.className = 'switch' + (sw.className.indexOf('on') === -1 ? ' on' : '');
+    }
+    function checkUpdate() {
+      var btn = document.getElementById('btnQuickCheckUpdate');
+      var oldHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>检查中';
+      return apiGet('api/check_update').then(function (d) {
+        renderUpdateResult(d);
+      }).catch(function () {
+        renderUpdateResult(null);
+      }).finally(function () {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+      });
+    }
+    function renderUpdateResult(d) {
+      var box = document.getElementById('quickUpdateResult');
+      if (!d) {
+        box.innerHTML = '<div class="update-result error"><svg class="icon-sm"><use href="#i-alert"/></svg>' +
+          '<span>检查更新失败，请检查网络或配置网络代理</span></div>';
+        return;
+      }
+      var cls = d.success ? (d.update_available ? 'warning' : 'success') : 'error';
+      var icon = d.update_available ? 'i-alert' : (d.success ? 'i-check' : 'i-alert');
+      var html = '<div class="update-result ' + cls + '">' +
+        '<svg class="icon-sm"><use href="#' + icon + '"/></svg>' +
+        '<span>' + esc(d.message || '') + '</span></div>';
+      if (d.update_available && d.release_url) {
+        html += '<div class="form-hint" style="margin-top:8px">发布页：<a href="' + esc(d.release_url) +
+          '" target="_blank" rel="noopener">' + esc(d.release_url) + '</a></div>';
+      }
+      box.innerHTML = html;
+    }
+    function doUpgrade() {
+      apiPost('api/action', { action: 'upgrade' }).then(function (d) {
+        toast((d && d.message) || '升级引导已生成', d && d.success ? 'success' : 'error');
+        if (d && d.release_url) window.open(d.release_url, '_blank');
+      }).catch(function () {
+        toast('升级请求失败', 'error');
+      });
+    }
+    function saveNetworkProxy() {
+      var btn = document.getElementById('btnSaveProxy');
+      var oldHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>保存中';
+      var np = {
+        enabled: document.getElementById('npSwitch').className.indexOf('on') !== -1,
+        type: document.getElementById('npType').value,
+        host: document.getElementById('npHost').value.trim(),
+        port: parseInt(document.getElementById('npPort').value, 10) || 0,
+        username: document.getElementById('npUser').value.trim()
+      };
+      var pass = document.getElementById('npPass').value;
+      if (pass) np.password = pass; // 留空则不携带 -> 后端保留原密码
+      var payload = {
+        proxy_port: gateway.proxyPort || 2280,
+        access_mode: gateway.mode || 'fngateway',
+        reverse_proxy_url: gateway.customUrl || '',
+        network_proxy: np
+        // 不携带 access_password -> 保留网关访问密码
+      };
+      apiPost('api/gateway', payload).then(function (d) {
+        if (d && d.success) {
+          toast(d.message || '代理设置已保存', 'success');
+          return loadSettings();
+        }
+        toast((d && d.message) || '保存失败', 'error');
+      }).catch(function () {
+        toast('保存失败，请检查网络', 'error');
+      }).finally(function () {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+      });
+    }
+    function resetPassword() {
+      var payload = {
+        new_password: document.getElementById('rpNew').value,
+        confirm_password: document.getElementById('rpConfirm').value
+      };
+      if (gateway.passwordSet) payload.current_password = document.getElementById('rpCurrent').value;
+      apiPost('api/reset_password', payload).then(function (d) {
+        if (d && d.success) {
+          toast(d.message || '访问密码已重置', 'success');
+          document.getElementById('rpCurrent').value = '';
+          document.getElementById('rpNew').value = '';
+          document.getElementById('rpConfirm').value = '';
+          return loadGatewayConfig(false);
+        }
+        toast((d && d.message) || '重置失败', 'error');
+      }).catch(function () {
+        toast('重置失败，请检查网络', 'error');
+      });
+    }
+    function confirmResetRuntime() {
+      showConfirm('重置运行环境', '将停止服务、清空运行日志并重新启动 QwenPaw。确定继续吗？', function () {
+        apiPost('api/action', { action: 'reset' }).then(function (d) {
+          toast((d && d.message) || '已重置运行环境', d && d.success ? 'success' : 'error');
+          return fetchStatus();
+        }).catch(function () { toast('重置失败', 'error'); });
+      });
+    }
+    function confirmRepair() {
+      showConfirm('修复服务', '将重启 QwenPaw 服务以尝试从卡死/异常状态恢复。确定继续吗？', function () {
+        apiPost('api/action', { action: 'repair' }).then(function (d) {
+          toast((d && d.message) || '已修复', d && d.success ? 'success' : 'error');
+          return fetchStatus();
+        }).catch(function () { toast('修复请求失败', 'error'); });
+      });
+    }
+
+    /* ================= 日志 ================= */
+    function fetchLogs(notify) {
+      var btn = document.getElementById('btnRefreshLogs');
+      var oldHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>刷新中';
+      return apiGet('api/logs?lines=500').then(function (d) {
+        if (d && d.success) {
+          state.logs = Array.isArray(d.logs) ? d.logs : [];
+          state.page = 1;
+          renderLogs();
+          if (notify) toast('日志已刷新', 'success');
+        } else if (notify) {
+          toast('获取日志失败：' + ((d && d.message) || '未知错误'), 'error');
+        }
+      }).catch(function () {
+        if (notify) toast('获取日志失败', 'error');
+      }).finally(function () {
+        btn.disabled = false;
+        btn.innerHTML = oldHtml;
+      });
+    }
+    function clearLogsNow() {
+      apiPost('api/clear_logs').then(function (d) {
+        if (d && d.success) {
+          state.logs = [];
+          state.page = 1;
+          renderLogs();
+          toast(d.message || '日志已清空', 'success');
+        } else {
+          toast('清空日志失败：' + ((d && d.message) || '未知错误'), 'error');
+        }
+      }).catch(function () { toast('清空日志失败', 'error'); });
+    }
+    function confirmClearLogs() {
+      showConfirm('清空日志', '确定要清空运行日志吗？此操作不可撤销。', clearLogsNow);
+    }
+    function filteredLogs() {
+      var needle = state.filter.trim().toLowerCase();
+      if (!needle) return state.logs;
+      return state.logs.filter(function (l) {
+        return String(l.message || '').toLowerCase().indexOf(needle) !== -1;
+      });
+    }
+    function renderLogs() {
+      var list = filteredLogs();
+      var totalPages = Math.max(1, Math.ceil(list.length / state.pageSize));
+      if (state.page > totalPages) state.page = totalPages;
+      var start = (state.page - 1) * state.pageSize;
+      var paged = list.slice(start, start + state.pageSize);
+
+      var html = '';
+      if (paged.length === 0) {
+        html = '<div class="empty">暂无日志</div>';
+      } else {
+        for (var i = 0; i < paged.length; i++) {
+          html += '<div class="log-item">' +
+            '<div class="log-time">' + esc(paged[i].time || '') + '</div>' +
+            '<div class="log-msg">' + esc(paged[i].message || '-') + '</div>' +
+            '</div>';
+        }
+      }
+      document.getElementById('logList').innerHTML = html;
+
+      var pagerRow = document.getElementById('pagerRow');
+      if (list.length > 0) {
+        pagerRow.style.display = 'flex';
+        document.getElementById('pagerTotal').textContent = '共 ' + list.length + ' 条';
+        renderPager(state.page, totalPages);
+      } else {
+        pagerRow.style.display = 'none';
+      }
+    }
+    function renderPager(page, total) {
+      var html = '';
+      var btn = function (label, p, disabled, current) {
+        return '<button class="page-btn' + (current ? ' current' : '') + '"' +
+          (disabled ? ' disabled' : ' onclick="gotoPage(' + p + ')"') + '>' + label + '</button>';
+      };
+      html += btn('<svg class="icon-sm"><use href="#i-chev-left"/></svg>', page - 1, page <= 1, false);
+      var s = Math.max(1, page - 2), e = Math.min(total, page + 2);
+      if (s > 1) html += btn('1', 1, false, false) + (s > 2 ? '<span class="page-btn" style="cursor:default">…</span>' : '');
+      for (var i = s; i <= e; i++) html += btn(String(i), i, false, i === page);
+      if (e < total) html += (e < total - 1 ? '<span class="page-btn" style="cursor:default">…</span>' : '') + btn(String(total), total, false, false);
+      html += btn('<svg class="icon-sm"><use href="#i-chev-right"/></svg>', page + 1, page >= total, false);
+      document.getElementById('pager').innerHTML = html;
+    }
+    function gotoPage(p) { state.page = p; renderLogs(); }
+    function onFilterChange() { state.filter = document.getElementById('logFilter').value; state.page = 1; renderLogs(); }
+    function onPageSizeChange() {
+      state.pageSize = parseInt(document.getElementById('pageSizeSel').value, 10) || 50;
       state.page = 1;
       renderLogs();
-      if (notify) toast('日志已刷新', 'success');
-    } else if (notify) {
-      toast('获取日志失败：' + ((d && d.message) || '未知错误'), 'error');
     }
-  }).catch(function () {
-    if (notify) toast('获取日志失败', 'error');
-  }).finally(function () {
-    btn.disabled = false;
-    btn.innerHTML = oldHtml;
-  });
-}
-function clearLogsNow() {
-  apiPost('api/clear_logs').then(function (d) {
-    if (d && d.success) {
-      state.logs = [];
-      state.page = 1;
-      renderLogs();
-      toast(d.message || '日志已清空', 'success');
-    } else {
-      toast('清空日志失败：' + ((d && d.message) || '未知错误'), 'error');
+    function toggleAutoRefresh() {
+      state.autoRefresh = !state.autoRefresh;
+      document.getElementById('autoRefreshSwitch').className = 'switch' + (state.autoRefresh ? ' on' : '');
+      scheduleRefresh();
     }
-  }).catch(function () { toast('清空日志失败', 'error'); });
-}
-function confirmClearLogs() {
-  showConfirm('清空日志', '确定要清空运行日志吗？此操作不可撤销。', clearLogsNow);
-}
-function filteredLogs() {
-  var needle = state.filter.trim().toLowerCase();
-  if (!needle) return state.logs;
-  return state.logs.filter(function (l) {
-    return String(l.message || '').toLowerCase().indexOf(needle) !== -1;
-  });
-}
-function renderLogs() {
-  var list = filteredLogs();
-  var totalPages = Math.max(1, Math.ceil(list.length / state.pageSize));
-  if (state.page > totalPages) state.page = totalPages;
-  var start = (state.page - 1) * state.pageSize;
-  var paged = list.slice(start, start + state.pageSize);
-
-  var html = '';
-  if (paged.length === 0) {
-    html = '<div class="empty">暂无日志</div>';
-  } else {
-    for (var i = 0; i < paged.length; i++) {
-      html += '<div class="log-item">' +
-        '<div class="log-time">' + esc(paged[i].time || '') + '</div>' +
-        '<div class="log-msg">' + esc(paged[i].message || '-') + '</div>' +
-        '</div>';
+    function scheduleRefresh() {
+      if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+      if (!state.autoRefresh) return;
+      refreshTimer = setTimeout(function () {
+        fetchLogs(false).then(scheduleRefresh);
+      }, 3000);
     }
-  }
-  document.getElementById('logList').innerHTML = html;
 
-  var pagerRow = document.getElementById('pagerRow');
-  if (list.length > 0) {
-    pagerRow.style.display = 'flex';
-    document.getElementById('pagerTotal').textContent = '共 ' + list.length + ' 条';
-    renderPager(state.page, totalPages);
-  } else {
-    pagerRow.style.display = 'none';
-  }
-}
-function renderPager(page, total) {
-  var html = '';
-  var btn = function (label, p, disabled, current) {
-    return '<button class="page-btn' + (current ? ' current' : '') + '"' +
-      (disabled ? ' disabled' : ' onclick="gotoPage(' + p + ')"') + '>' + label + '</button>';
-  };
-  html += btn('<svg class="icon-sm"><use href="#i-chev-left"/></svg>', page - 1, page <= 1, false);
-  var s = Math.max(1, page - 2), e = Math.min(total, page + 2);
-  if (s > 1) html += btn('1', 1, false, false) + (s > 2 ? '<span class="page-btn" style="cursor:default">…</span>' : '');
-  for (var i = s; i <= e; i++) html += btn(String(i), i, false, i === page);
-  if (e < total) html += (e < total - 1 ? '<span class="page-btn" style="cursor:default">…</span>' : '') + btn(String(total), total, false, false);
-  html += btn('<svg class="icon-sm"><use href="#i-chev-right"/></svg>', page + 1, page >= total, false);
-  document.getElementById('pager').innerHTML = html;
-}
-function gotoPage(p) { state.page = p; renderLogs(); }
-function onFilterChange() { state.filter = document.getElementById('logFilter').value; state.page = 1; renderLogs(); }
-function onPageSizeChange() {
-  state.pageSize = parseInt(document.getElementById('pageSizeSel').value, 10) || 50;
-  state.page = 1;
-  renderLogs();
-}
-function toggleAutoRefresh() {
-  state.autoRefresh = !state.autoRefresh;
-  document.getElementById('autoRefreshSwitch').className = 'switch' + (state.autoRefresh ? ' on' : '');
-  scheduleRefresh();
-}
-function scheduleRefresh() {
-  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
-  if (!state.autoRefresh) return;
-  refreshTimer = setTimeout(function () {
-    fetchLogs(false).then(scheduleRefresh);
-  }, 3000);
-}
+    /* ================= 视图切换 ================= */
+    function switchView(v) {
+      if (!v) return; /* 防御：无 data-view 的按钮（如皮肤切换）不切换视图 */
+      state.view = v;
+      document.getElementById('view-overview').className = 'view' + (v === 'overview' ? ' active' : '');
+      document.getElementById('view-logs').className = 'view' + (v === 'logs' ? ' active' : '');
+      document.getElementById('view-gateway').className = 'view' + (v === 'gateway' ? ' active' : '');
+      document.getElementById('view-settings').className = 'view' + (v === 'settings' ? ' active' : '');
+      var navs = document.querySelectorAll('.nav-item, .tabbar-item');
+      for (var i = 0; i < navs.length; i++) {
+        navs[i].className = navs[i].className.replace(/\s*active/g, '') +
+          (navs[i].getAttribute('data-view') === v ? ' active' : '');
+      }
+      if (v === 'logs') {
+        fetchLogs(false);
+        scheduleRefresh();
+      }
+      if (v === 'gateway') {
+        loadGatewayConfig(false);
+      }
+      if (v === 'settings') {
+        loadSettings();
+      }
+    }
+    document.querySelectorAll('.nav-item, .tabbar-item').forEach(function (el) {
+      var v = el.getAttribute('data-view');
+      if (!v) return; /* 皮肤按钮等无 data-view 的 nav-item 不参与视图切换 */
+      el.addEventListener('click', function () { switchView(v); });
+    });
 
-/* ================= 视图切换 ================= */
-function switchView(v) {
-  if (!v) return; /* 防御：无 data-view 的按钮（如皮肤切换）不切换视图 */
-  state.view = v;
-  document.getElementById('view-overview').className = 'view' + (v === 'overview' ? ' active' : '');
-  document.getElementById('view-logs').className = 'view' + (v === 'logs' ? ' active' : '');
-  document.getElementById('view-gateway').className = 'view' + (v === 'gateway' ? ' active' : '');
-  document.getElementById('view-settings').className = 'view' + (v === 'settings' ? ' active' : '');
-  var navs = document.querySelectorAll('.nav-item, .tabbar-item');
-  for (var i = 0; i < navs.length; i++) {
-    navs[i].className = navs[i].className.replace(/\s*active/g, '') +
-      (navs[i].getAttribute('data-view') === v ? ' active' : '');
-  }
-  if (v === 'logs') {
-    fetchLogs(false);
-    scheduleRefresh();
-  }
-  if (v === 'gateway') {
+    /* ================= 确认弹窗 ================= */
+    function showConfirm(title, body, okFn) {
+      document.getElementById('confirmTitle').textContent = title;
+      document.getElementById('confirmBody').textContent = body;
+      confirmAction = okFn;
+      document.getElementById('confirmMask').className = 'modal-mask show';
+    }
+    function closeConfirm() {
+      document.getElementById('confirmMask').className = 'modal-mask';
+      confirmAction = null;
+    }
+    function confirmOkAction() {
+      closeConfirm();
+      if (confirmAction) confirmAction();
+      confirmAction = null;
+    }
+    document.getElementById('confirmMask').addEventListener('click', function (e) {
+      if (e.target === this) closeConfirm();
+    });
+
+    /* ================= 启动 ================= */
+    initTheme();
+    runtimeTimer = setInterval(tickRuntime, 1000);
+    fetchConfig();
+    fetchStatus();
     loadGatewayConfig(false);
-  }
-  if (v === 'settings') {
-    loadSettings();
-  }
-}
-document.querySelectorAll('.nav-item, .tabbar-item').forEach(function (el) {
-  var v = el.getAttribute('data-view');
-  if (!v) return; /* 皮肤按钮等无 data-view 的 nav-item 不参与视图切换 */
-  el.addEventListener('click', function () { switchView(v); });
-});
-
-/* ================= 确认弹窗 ================= */
-function showConfirm(title, body, okFn) {
-  document.getElementById('confirmTitle').textContent = title;
-  document.getElementById('confirmBody').textContent = body;
-  confirmAction = okFn;
-  document.getElementById('confirmMask').className = 'modal-mask show';
-}
-function closeConfirm() {
-  document.getElementById('confirmMask').className = 'modal-mask';
-  confirmAction = null;
-}
-function confirmOkAction() {
-  closeConfirm();
-  if (confirmAction) confirmAction();
-  confirmAction = null;
-}
-document.getElementById('confirmMask').addEventListener('click', function (e) {
-  if (e.target === this) closeConfirm();
-});
-
-/* ================= 启动 ================= */
-initTheme();
-runtimeTimer = setInterval(tickRuntime, 1000);
-fetchConfig();
-fetchStatus();
-loadGatewayConfig(false);
-</script>
+  </script>
 </body>
+
 </html>
