@@ -228,8 +228,12 @@ install_callback() {
 
     log_msg "使用 Python: ${PYTHON_BIN} $("${PYTHON_BIN}" --version 2>&1)"
 
-    # 固定 umask 022，确保 venv 及后续安装产物权限稳定为 755/644
+    # 固定 umask 022，确保 venv 及 pip 安装产物权限稳定为 755/644
     # （避免裸跑 venv 时权限随执行环境 umask 漂移，导致卸载重装后权限变 700 服务不可读）
+    # 窄摆法（QW-009）：作用域仅覆盖 venv 创建 + 依赖安装；恢复后再跑 init，
+    # 避免 config.json / .qwenpaw.secret 等密钥文件继承 022 以 644 出生。
+    # 既有环境升级不触发 init（config.json 存在即跳过），运行时文件不受本段影响。
+    _qw_old_umask=$(umask)
     umask 022
 
     # 创建 venv
@@ -264,6 +268,10 @@ install_callback() {
         return 1
     fi
     log_msg "依赖安装完成"
+
+    # 恢复系统默认 umask：此后 init 生成的 config.json / .qwenpaw.secret 等
+    # 密钥文件不再继承 022（venv 与 pip 产物已在此前以 755/644 固化）
+    umask "${_qw_old_umask}"
 
     # 快速应用默认配置
     local config_file="${QWENPAW_WORKING_DIR}/config.json"
