@@ -125,6 +125,81 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         except (OSError, ProcessLookupError, PermissionError):
             return False
 
+    def _kill_process_tree(self, pid_str: str, sig: int) -> None:
+        """按进程组杀进程（start_new_session 使 bash 为组长，子进程同组），
+        回退单进程 kill。pid 文件记录的 bash 在 Linux 上可能 fork 而非 exec
+        最终命令，单杀 bash 会把 python 内核留成孤儿——停止按钮"没作用"的根因。"""
+        try:
+            pid = int(pid_str)
+        except (TypeError, ValueError):
+            return
+        try:
+            pgid = os.getpgid(pid)
+        except OSError:
+            pgid = None
+        try:
+            if pgid is not None and pgid == pid:
+                os.killpg(pgid, sig)
+            else:
+                os.kill(pid, sig)
+        except OSError:
+            pass
+
+    def _kill_orphan_kernels(self, timeout: float = 3.0) -> list:
+        """兜底清理孤儿内核进程：扫描 /proc，杀掉 cmdline 为
+        `python -m qwenpaw app --port <本服务端口>` 但不在 pid 文件里的进程。
+        场景：旧版本"停止"单杀 bash 留下的孤儿、升级中断遗留等（自愈）。"""
+        port = str(self.cfg.get("port", "2277"))
+        me = os.getpid()
+        recorded = set()
+        try:
+            recorded.add(int(self.read_pid()))
+        except (TypeError, ValueError):
+            pass
+        killed = []
+        try:
+            entries = os.listdir("/proc")
+        except OSError:
+            return killed
+        for name in entries:
+            if not name.isdigit():
+                continue
+            pid = int(name)
+            if pid == me or pid in recorded:
+                continue
+            try:
+                with open("/proc/%d/cmdline" % pid, "rb") as f:
+                    argv = [a.decode("utf-8", "replace") for a in f.read().split(b"\x00") if a]
+            except OSError:
+                continue
+            if "-m" not in argv or "qwenpaw" not in argv or "app" not in argv:
+                continue
+            try:
+                i = argv.index("--port")
+                if i + 1 >= len(argv) or argv[i + 1] != port:
+                    continue
+            except ValueError:
+                continue
+            for s in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.kill(pid, s)
+                except OSError:
+                    break
+                deadline = time.time() + timeout
+                alive = False
+                while time.time() < deadline:
+                    try:
+                        os.kill(pid, 0)
+                    except OSError:
+                        alive = False
+                        break
+                    alive = True
+                    time.sleep(0.2)
+                if not alive:
+                    break
+            killed.append(str(pid))
+        return killed
+
     def get_version(self) -> str:
         """从 venv 中读取 qwenpaw 版本（带 60s 缓存）"""
         now = time.time()
@@ -410,6 +485,11 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         if self.process_alive(self.read_pid()):
             return {"success": True, "message": "QwenPaw 已在运行"}
 
+        # 兜底：清理孤儿内核，避免其占用服务端口导致新实例启动失败
+        orphans = self._kill_orphan_kernels()
+        if orphans:
+            time.sleep(1)
+
         log_file = self.cfg.get("log_file", "")
         pid_file = self.cfg.get("pid_file", "")
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -440,10 +520,8 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         pid_file = self.cfg.get("pid_file", "")
 
         if self.process_alive(pid):
-            try:
-                os.kill(int(pid), signal.SIGTERM)
-            except Exception:
-                pass
+            # 按进程组杀：bash -c 可能 fork python 为子进程，单杀 bash 会留下孤儿内核
+            self._kill_process_tree(pid, signal.SIGTERM)
 
             count = 0
             while self.process_alive(pid) and count < 10:
@@ -451,23 +529,19 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
                 count += 1
 
             if self.process_alive(pid):
-                try:
-                    os.kill(int(pid), signal.SIGKILL)
-                except Exception:
-                    pass
+                self._kill_process_tree(pid, signal.SIGKILL)
                 time.sleep(1)
 
-            try:
-                os.remove(pid_file)
-            except Exception:
-                pass
-            return {"success": True, "message": "QwenPaw 已停止"}
+        # 兜底：清理历史遗留的孤儿内核（旧版本单杀 bash / 升级中断所致）
+        self._kill_orphan_kernels()
 
         try:
             os.remove(pid_file)
         except Exception:
             pass
-        return {"success": True, "message": "QwenPaw 未在运行"}
+        if pid and self.process_alive(pid):
+            return {"success": False, "message": "停止失败，请查看日志或手动处理"}
+        return {"success": True, "message": "QwenPaw 已停止"}
 
     def restart_service(self) -> dict:
         self.stop_service()
@@ -667,14 +741,14 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         s += '  if [ -f "' + pid_file + '" ]; then\n'
         s += '    old_pid=$(head -n 1 "' + pid_file + '" | tr -d \'[:space:]\')\n'
         s += '    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then\n'
-        s += '      kill -TERM "$old_pid" 2>/dev/null\n'
+        s += '      kill -TERM -- "-$old_pid" 2>/dev/null || kill -TERM "$old_pid" 2>/dev/null\n'
         s += '      count=0\n'
         s += '      while kill -0 "$old_pid" 2>/dev/null && [ $count -lt 20 ]; do\n'
         s += '        sleep 0.5\n'
         s += '        count=$((count + 1))\n'
         s += '      done\n'
         s += '      if kill -0 "$old_pid" 2>/dev/null; then\n'
-        s += '        kill -KILL "$old_pid" 2>/dev/null\n'
+        s += '        kill -KILL -- "-$old_pid" 2>/dev/null || kill -KILL "$old_pid" 2>/dev/null\n'
         s += '      fi\n'
         s += '    fi\n'
         s += '    rm -f "' + pid_file + '"\n'
@@ -691,7 +765,9 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         s += '  echo "=== 内核升级失败 (exit code: $rc)，尝试以当前文件重启服务 ===" >> "' + up_log + '"\n'
         s += 'fi\n'
         s += 'echo "正在启动 QwenPaw 服务..." >> "' + up_log + '"\n'
-        s += '  bash -c \'' + start_cmd + '\' >> "' + log_file + '" 2>&1 &\n'
+        # setsid 让内核进程成为新会话/组长（与 start_service 的 start_new_session 对齐），
+        # 否则后续"按进程组停止"对其无效
+        s += '  setsid bash -c \'' + start_cmd + '\' >> "' + log_file + '" 2>&1 &\n'
         s += '  echo $! > "' + pid_file + '"\n'
         s += '  echo "QwenPaw 已启动" >> "' + up_log + '"\n'
         s += 'echo "$rc" > "' + up_result + '"\n'
@@ -729,6 +805,8 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             log_file = self.cfg.get("log_file", "")
             pid_file = self.cfg.get("pid_file", "")
             start_cmd = self.build_service_command()
+            # 兜底：升级前清理孤儿内核，避免脚本停不干净
+            self._kill_orphan_kernels()
             script = self._build_upgrade_script(
                 venv_python, pid_file, log_file, up_log, up_pid, up_result, start_cmd
             )
