@@ -55,7 +55,7 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 STATUS_CACHE_TTL = 60
 
 # 应用安装包版本（与 manifest 的 version 保持同步；升级时同步更新）
-APP_VERSION = "26.8.48"
+APP_VERSION = "26.8.49"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
 # 应用框架更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
@@ -467,6 +467,9 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         auth_pass = os.environ.get("QWENPAW_AUTH_PASSWORD", "admin")
         node_path = os.environ.get("PATH", "")
 
+        # exec：bash 以内核进程自替换，pid 文件记录的就是内核 pid，
+        # 停止时 kill 该 pid 即直接命中内核（对齐 com.dustinky.qwenpaw 的行为），
+        # 避免"杀掉 bash 留下内核孤儿/内核优雅关闭期间误判"的歧义
         cmd = (
             f"export HOME={env_home} && "
             f"export QWENPAW_WORKING_DIR={working_dir} && "
@@ -474,7 +477,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             f"export QWENPAW_AUTH_USERNAME={auth_user} && "
             f"export QWENPAW_AUTH_PASSWORD={auth_pass} && "
             f"export PATH={node_path} && "
-            f"{venv_python} -m qwenpaw app --host 0.0.0.0 --port {port}"
+            f"exec {venv_python} -m qwenpaw app --host 0.0.0.0 --port {port}"
         )
         proxy_env = self.proxy_env()
         if proxy_env:
@@ -515,16 +518,29 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             logger.error(f"启动服务失败: {e}")
             return {"success": False, "message": f"启动失败: {e}"}
 
+    def _port_in_use(self, timeout: float = 1.0) -> bool:
+        """内核服务端口是否有进程监听（停止是否彻底以端口释放为准）"""
+        try:
+            port = int(str(self.cfg.get("port", "2277")))
+        except (TypeError, ValueError):
+            return False
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
     def stop_service(self) -> dict:
         pid = self.read_pid()
         pid_file = self.cfg.get("pid_file", "")
 
         if self.process_alive(pid):
-            # 按进程组杀：bash -c 可能 fork python 为子进程，单杀 bash 会留下孤儿内核
+            # 按进程组杀：启动命令经 bash 链式构造，单杀可能留下子进程
             self._kill_process_tree(pid, signal.SIGTERM)
 
             count = 0
-            while self.process_alive(pid) and count < 10:
+            # 内核（uvicorn）优雅关闭可能需要数秒，必须等它真正退出
+            while self.process_alive(pid) and count < 15:
                 time.sleep(1)
                 count += 1
 
@@ -532,15 +548,22 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
                 self._kill_process_tree(pid, signal.SIGKILL)
                 time.sleep(1)
 
-        # 兜底：清理历史遗留的孤儿内核（旧版本单杀 bash / 升级中断所致）
+        # 兜底：清理孤儿内核（旧版本单杀 bash / 升级中断遗留）
         self._kill_orphan_kernels()
+
+        # 端口释放校验：端口仍被占用说明内核还活着（可能未被 pid 覆盖），继续清理
+        wait = 0
+        while self._port_in_use() and wait < 10:
+            self._kill_orphan_kernels()
+            time.sleep(1)
+            wait += 1
 
         try:
             os.remove(pid_file)
         except Exception:
             pass
-        if pid and self.process_alive(pid):
-            return {"success": False, "message": "停止失败，请查看日志或手动处理"}
+        if self._port_in_use():
+            return {"success": False, "message": "停止失败：服务端口仍被占用，请查看日志或手动处理"}
         return {"success": True, "message": "QwenPaw 已停止"}
 
     def restart_service(self) -> dict:
@@ -726,34 +749,18 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
     def _build_upgrade_script(self, venv_python: str, pid_file: str, log_file: str,
                               up_log: str, up_pid: str, up_result: str, start_cmd: str) -> str:
-        """构造后台升级脚本：先停服务 -> pip 升级内核 -> 再启动服务（自包含，页面关闭也不中断）。
+        """构造后台升级脚本：pip 升级内核 -> 再启动服务（自包含，页面关闭也不中断）。
 
-        顺序很重要：必须先停服务再 pip。曾在升级中 pip 直接替换 venv 里运行中内核的
-        site-packages 文件，导致运行中的 QwenPaw 进程 import 失败当场崩溃（用户反馈
-        「第一次升级闪退了一次」）。先停再升消除该竞态。
+        停止服务已由 start_upgrade 在派发脚本前同步完成（stop_service 含端口释放
+        校验，等内核真正退出）。顺序很重要：必须内核完全停止后再 pip——pip 直接
+        替换 venv 里运行中内核的 site-packages 文件，会导致运行中的 QwenPaw 进程
+        import 失败当场崩溃（用户反馈「第一次升级闪退」）。
         """
         s = ""
         s += ': > "' + up_log + '"\n'
         s += 'echo "=== QwenPaw 内核升级开始 ===" >> "' + up_log + '"\n'
         s += 'echo "时间: $(date \'+%Y-%m-%d %H:%M:%S\')" >> "' + up_log + '"\n'
         s += 'echo "" >> "' + up_log + '"\n'
-        s += 'echo "正在停止 QwenPaw 服务（先停再升，避免 pip 替换运行中文件导致进程崩溃）..." >> "' + up_log + '"\n'
-        s += '  if [ -f "' + pid_file + '" ]; then\n'
-        s += '    old_pid=$(head -n 1 "' + pid_file + '" | tr -d \'[:space:]\')\n'
-        s += '    if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then\n'
-        s += '      kill -TERM -- "-$old_pid" 2>/dev/null || kill -TERM "$old_pid" 2>/dev/null\n'
-        s += '      count=0\n'
-        s += '      while kill -0 "$old_pid" 2>/dev/null && [ $count -lt 20 ]; do\n'
-        s += '        sleep 0.5\n'
-        s += '        count=$((count + 1))\n'
-        s += '      done\n'
-        s += '      if kill -0 "$old_pid" 2>/dev/null; then\n'
-        s += '        kill -KILL -- "-$old_pid" 2>/dev/null || kill -KILL "$old_pid" 2>/dev/null\n'
-        s += '      fi\n'
-        s += '    fi\n'
-        s += '    rm -f "' + pid_file + '"\n'
-        s += '  fi\n'
-        s += '  sleep 1\n'
         s += 'echo "$ PYTHONUNBUFFERED=1 ' + venv_python + ' -m pip install --upgrade qwenpaw" >> "' + up_log + '"\n'
         s += ('PYTHONUNBUFFERED=1 "' + venv_python + '" -m pip install --upgrade --no-input qwenpaw'
               ' >> "' + up_log + '" 2>&1\n')
@@ -805,11 +812,29 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             log_file = self.cfg.get("log_file", "")
             pid_file = self.cfg.get("pid_file", "")
             start_cmd = self.build_service_command()
-            # 兜底：升级前清理孤儿内核，避免脚本停不干净
-            self._kill_orphan_kernels()
+
+            # 先同步停止服务并确认端口释放（内核真正退出后再 pip，
+            # 避免 pip 替换运行中文件导致内核 import 失败闪退）
+            stop_res = self.stop_service()
+            logger.info("升级前停止服务: %s" % stop_res.get("message", ""))
+            if not stop_res.get("success"):
+                return {
+                    "success": False,
+                    "message": "升级前停止服务失败（%s），已取消升级" % stop_res.get("message", ""),
+                }
+
             script = self._build_upgrade_script(
                 venv_python, pid_file, log_file, up_log, up_pid, up_result, start_cmd
             )
+            # 脚本落盘为文件执行：避免 bash -c 整段脚本作为 cmdline、内嵌内核
+            # 启动命令特征被 _kill_orphan_kernels 误判为孤儿内核而误杀
+            script_path = os.path.join(os.path.dirname(up_log), "upgrade.sh")
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(script)
+            try:
+                os.chmod(script_path, 0o755)
+            except OSError:
+                pass
 
             # 清理上次结果文件
             try:
@@ -818,7 +843,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
                 pass
 
             proc = subprocess.Popen(
-                ["bash", "-c", script],
+                ["bash", script_path],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,

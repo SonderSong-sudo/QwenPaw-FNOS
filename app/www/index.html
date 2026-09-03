@@ -2172,7 +2172,10 @@
           '<button class="btn btn-danger btn-lg" onclick="openQwenPaw()">' +
           '<svg class="icon-sm"><use href="#i-external-link"/></svg>打开 QwenPaw</button>';
       } else {
+        /* 服务已停止：启动可用，停止置灰不可点（参考 com.dustinky.qwenpaw 控制台） */
         actions.innerHTML =
+          '<button class="btn btn-outline btn-lg" disabled>' +
+          '<svg class="icon-sm"><use href="#i-stop-circle"/></svg>停止</button>' +
           '<button class="btn btn-primary btn-lg" onclick="doAction(\'start\')">' +
           '<svg class="icon-sm"><use href="#i-play"/></svg>启动服务</button>';
       }
@@ -2430,7 +2433,8 @@
           setCheckBtn('update');
           return;
         }
-        toast('内核升级已开始，升级期间请勿关闭页面', 'success');
+        toast('内核升级已开始', 'success');
+        /* 顶部横幅单例：立即替换「发现新版本」提示为「正在更新」，避免弹窗内容重复 */
         topToast('正在更新，升级期间请勿关闭页面…', 'success');
         renderStatus._openKey = null; /* 强制刷新 打开/启动 按钮态（升级中禁用） */
         renderStatus();
@@ -2480,13 +2484,12 @@
       }).catch(function () { });
       if (d.exit_code === 0) {
         topToast('内核升级完成，服务已重启', 'success');
-        toast(d.message || 'QwenPaw 内核升级完成，服务已重启', 'success');
+        /* 不再重复弹底部 toast，仅顶部横幅提示 */
         fetchStatus();
         /* 服务已重启，延迟刷新整页，避免旧页面状态残留（侧边栏点击右侧空白等） */
         setTimeout(function () { location.reload(); }, 3500);
       } else {
         topToast('内核升级失败，请查看升级日志', 'error');
-        toast(d.message || 'QwenPaw 内核升级失败，请查看升级日志', 'error');
         setCheckBtn('update');
         fetchStatus(); /* 升级失败服务可能停在停止态，必须刷新按钮态 */
       }
