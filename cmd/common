@@ -267,6 +267,24 @@ stop_process() {
     return 0
 }
 
+# 清理 site-packages 内的 qwenpaw 真身副本（历史「应用更新」pip 装包遗留）。
+# 该副本会以 PathFinder 优先级压过 editable 安装（@appcenter/server/src），
+# 且旧版 wheel 不带 console 静态资源 → 内核跑旧代码、网页版报
+# "web console is not available"。editable 安装不会在 site-packages
+# 留包目录（只有 __editable__*.pth），故见目录即删，安全。
+clean_orphan_kernel() {
+    local sp
+    sp="$(ls -d "${QWENPAW_VENV}"/lib/python*/site-packages 2>/dev/null | head -1)"
+    [ -n "${sp}" ] || return 0
+    if [ -d "${sp}/qwenpaw" ]; then
+        log_msg "检测到 site-packages 内 qwenpaw 真身副本（应用更新遗留），正在清理..."
+        rm -rf "${sp}/qwenpaw" "${sp}/qwenpawmail_mcp" \
+               "${sp}"/qwenpaw-*.dist-info "${sp}"/qwenpawmail_mcp-*.dist-info \
+               2>/dev/null
+        log_msg "孤儿副本清理完成，内核将改用 @appcenter/server 源码"
+    fi
+}
+
 # 安装前初始化
 install_init() {
     log_msg "执行安装前的准备工作..."
@@ -426,6 +444,7 @@ upgrade_callback() {
         "${QWENPAW_VENV}/bin/pip" config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ >/dev/null 2>&1
     fi
     log_msg "同步依赖..."
+    clean_orphan_kernel
     "${QWENPAW_VENV}/bin/pip" install --default-timeout=30 --retries 3 -e "${QWENPAW_SRC}" \
         >> "${LOG_FILE}" 2>&1 \
         && log_msg "依赖同步完成" \
