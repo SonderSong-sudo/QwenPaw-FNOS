@@ -1400,6 +1400,12 @@
           </svg>
           运行日志
         </button>
+        <button class="nav-item" data-view="backup">
+          <svg class="icon-sm">
+            <use href="#i-download" />
+          </svg>
+          备份与恢复
+        </button>
       </nav>
       <div class="sidebar-foot-nav">
         <div class="sidebar-divider"></div>
@@ -1645,8 +1651,18 @@
             <div id="pagerTotal" class="pager-total"></div>
             <div id="pager" class="pager"></div>
           </div>
+        </section>
 
-          <div class="card" style="margin-top:20px">
+        <!-- ===== 备份与恢复视图 ===== -->
+        <section id="view-backup" class="view">
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">备份与恢复</h1>
+              <p class="page-sub">备份工作目录与密钥 · 重置登录认证</p>
+            </div>
+          </div>
+
+          <div class="card">
             <div class="card-header">
               <svg class="icon-sm" style="color:var(--ui-primary)">
                 <use href="#i-download" />
@@ -1958,6 +1974,12 @@
           <use href="#i-file-text" />
         </svg>
         日志
+      </button>
+      <button class="tabbar-item" data-view="backup">
+        <svg class="icon">
+          <use href="#i-download" />
+        </svg>
+        备份
       </button>
       <button class="tabbar-item" data-view="gateway">
         <svg class="icon">
@@ -2793,6 +2815,7 @@
       state.view = v;
       document.getElementById('view-overview').className = 'view' + (v === 'overview' ? ' active' : '');
       document.getElementById('view-logs').className = 'view' + (v === 'logs' ? ' active' : '');
+      document.getElementById('view-backup').className = 'view' + (v === 'backup' ? ' active' : '');
       document.getElementById('view-gateway').className = 'view' + (v === 'gateway' ? ' active' : '');
       document.getElementById('view-settings').className = 'view' + (v === 'settings' ? ' active' : '');
       var navs = document.querySelectorAll('.nav-item, .tabbar-item');
