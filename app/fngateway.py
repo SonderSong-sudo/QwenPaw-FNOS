@@ -1273,6 +1273,10 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
             self.handle_backup_download()
             return
 
+        if action == "logs_download":
+            self.handle_logs_download()
+            return
+
         if method != "POST":
             self.send_json({"success": False, "message": "仅支持 POST 请求"})
             return
@@ -1355,6 +1359,36 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 os.remove(fp)
             except Exception:
                 pass
+
+    def handle_logs_download(self):
+        """GET /api/logs_download：返回完整运行日志附件（剥除 ANSI 的纯文本）
+
+        参考 dhs 的 GET /logs/download：前端 window.open 打开即触发下载。
+        日志文件由内核持续追加写入，读取后原地保留不清除。
+        """
+        path = self.server.cfg.get("log_file", "")
+        if not path or not os.path.exists(path):
+            self.send_json({"success": False, "message": "日志文件不存在"})
+            return
+        try:
+            with open(path, encoding="utf-8", errors="ignore") as f:
+                raw = f.read()
+        except Exception as e:
+            logger.error(f"读取日志文件失败 {path}: {e}")
+            self.send_json({"success": False, "message": "读取日志失败"})
+            return
+        body = ANSI_ESCAPE.sub("", raw).encode("utf-8")
+        name = "qwenpaw-console-%s.log" % time.strftime("%Y%m%d-%H%M%S")
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def read_body(self) -> bytes:
         """读取请求体（按 Content-Length）"""
