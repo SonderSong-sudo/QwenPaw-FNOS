@@ -1289,6 +1289,12 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
 
     def do_HEAD(self): self.handle_request()
 
+    def do_DELETE(self): self.handle_request()
+
+    def do_PUT(self): self.handle_request()
+
+    def do_PATCH(self): self.handle_request()
+
     def handle_request(self):
         prefix = self.server.prefix
         full = self.strip_prefix(self.path, prefix)  # 保留 query
