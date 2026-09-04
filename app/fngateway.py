@@ -57,7 +57,7 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 STATUS_CACHE_TTL = 60
 
 # 应用安装包版本（与 manifest 的 version 保持同步；升级时同步更新）
-APP_VERSION = "26.8.52"
+APP_VERSION = "26.8.53"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
 # 应用框架更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
@@ -873,6 +873,9 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
         # --- 3) 启动服务 ---
         s += 'echo "[3/3] 正在启动 QwenPaw 服务..." >> "' + up_log + '"\n'
+        # start_cmd 嵌入外层单引号包裹的 bash -c：对单引号做 '\'' 转义防御
+        # （proxy 密码经 quote 不会产生单引号，但 HOME/PATH 等环境值不设防）
+        start_cmd_esc = start_cmd.replace("'", "'\\''")
         # echo $$ 由内层 bash 在 exec 之前写出：exec 后 pid 不变，记录的即内核 pid。
         # 不能用 $!——setsid 在调用方已是组长时会 fork，记录到的是 setsid 包装进程，
         # 导致 pid 文件与真实内核错位（停止失效、状态显示已停止）。
@@ -881,14 +884,41 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         # 注意：start_cmd 以 export 开头、末尾自带 exec，这里只能在前面追加写 pid
         # 的语句，不能加 exec 前缀（exec export ... 非法，会导致内核根本没起来）
         s += ('if command -v setsid >/dev/null 2>&1; then\n'
-              '  setsid bash -c \'echo $$ > "' + pid_file + '"; ' + start_cmd + '\''
+              '  setsid bash -c \'echo $$ > "' + pid_file + '"; ' + start_cmd_esc + '\''
               ' >> "' + log_file + '" 2>&1 &\n'
               'else\n'
-              '  bash -c \'echo $$ > "' + pid_file + '"; ' + start_cmd + '\''
+              '  bash -c \'echo $$ > "' + pid_file + '"; ' + start_cmd_esc + '\''
               ' >> "' + log_file + '" 2>&1 &\n'
               'fi\n')
-        s += 'sleep 2\n'
-        s += 'echo "QwenPaw 已启动（pid: $(cat "' + pid_file + '" 2>/dev/null)）" >> "' + up_log + '"\n'
+        # 启动确认：轮询等端口监听（最多 30s），pid 死亡提前判定失败。
+        # 此前只 sleep 2 就写结果：新内核若启动即崩（pip 连带升级依赖不兼容 /
+        # 新版 CLI 变化 / 配置迁移问题），脚本已报「升级完成」而内核已死——
+        # 用户看到的「升级后闪退」，且升级日志里看不到崩溃原因（内核 stdout
+        # 在运行日志而非升级日志）。现在：端口监听=成功；失败时 dump 内核
+        # 日志尾部进升级日志，结果如实报失败（rc=3）。
+        s += (
+            'up_ok=0\n'
+            'i=0\n'
+            'while [ $i -lt 30 ]; do\n'
+            '  if port_busy; then up_ok=1; break; fi\n'
+            '  new_pid=$(cat "' + pid_file + '" 2>/dev/null)\n'
+            '  if [ -n "$new_pid" ] && ! kill -0 "$new_pid" 2>/dev/null; then\n'
+            '    echo "  内核进程 $new_pid 已退出（启动失败）" >> "' + up_log + '"\n'
+            '    break\n'
+            '  fi\n'
+            '  i=$((i+1))\n'
+            '  sleep 1\n'
+            'done\n'
+            'if [ "$up_ok" = "1" ]; then\n'
+            '  echo "  内核已监听端口 ' + port + '（pid: $(cat "' + pid_file + '" 2>/dev/null)）" >> "' + up_log + '"\n'
+            '  echo "=== 内核启动成功 ===" >> "' + up_log + '"\n'
+            'else\n'
+            '  echo "=== 内核启动失败：端口 ' + port + ' 未监听，运行日志尾部如下 ===" >> "' + up_log + '"\n'
+            '  tail -n 40 "' + log_file + '" >> "' + up_log + '" 2>/dev/null\n'
+            '  rc=3\n'
+            'fi\n'
+            'echo "" >> "' + up_log + '"\n'
+        )
         s += 'echo "$rc" > "' + up_result + '"\n'
         s += 'rm -f "' + up_pid + '"\n'
         return s
@@ -1667,7 +1697,7 @@ _QWENPAW_PATCH_WARNED = False
 # 统一网关子路径反代时注入前端页面的桥接脚本（参考 DHS fnGatewayBridgeScript）：
 # 把 SPA 发出的同源绝对路径请求（/api/... 等）自动补全网关子路径前缀，
 # 并改写 WebSocket/EventSource 的同源路径。静态资源由 HTML 改写为相对路径。
-QWENPAW_BRIDGE_SCRIPT = """<script>
+QWENPAW_BRIDGE_SCRIPT = r"""<script>
 (function(){
   // 网关侧注入的子路径基准（如 /app/qwenpaw_yuexps/qwenpaw）。
   // 优先用注入值：SPA 路由脱前缀后 location.pathname 不可靠，必须由网关钉死。
