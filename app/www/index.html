@@ -1999,6 +1999,8 @@
     var state = {
       running: false,
       pid: '',
+      busy: false,
+      busyAction: '', /* 当前进行中的动作（stop/start/restart），用于按钮文案 */
       startAt: null,
       version: '',
       port: '',
@@ -2197,33 +2199,37 @@
       renderActions(actions);
     }
     function renderActions(actions) {
-      /* 升级中固定显示升级占位，避免诱导用户在升级中途启动服务 */
-      var key = state.busy ? 'busy' : (upgradeBusy ? 'upgrading' : (state.running ? 'running' : 'stopped'));
+      /* 操作进行中/升级中：按钮一律保留并置灰不可点。
+         此前忙碌时整行替换成单个占位按钮，用户点击重启后「停止/重启」按钮消失，
+         看起来像页面出错；现在改为就地置灰 + 被点击的按钮显示进行中文案。 */
+      var lock = !!state.busy || !!upgradeBusy;
+      var key = (state.running ? 'run' : 'stop') + '|' +
+        (state.busy ? ('busy:' + (state.busyAction || '')) : (upgradeBusy ? 'upgrading' : 'idle'));
       if (key === renderActions._key) return;
       renderActions._key = key;
-      if (state.busy) {
-        actions.innerHTML = '<button class="btn btn-outline btn-lg" disabled><span class="spinner"></span>处理中...</button>';
-        return;
-      }
-      if (upgradeBusy) {
-        actions.innerHTML = '<button class="btn btn-outline btn-lg" disabled><span class="spinner"></span>内核升级中...</button>';
-        return;
-      }
+
+      var spin = '<span class="spinner"></span>';
+      var busyText = { stop: '停止中...', restart: '重启中...', start: '启动中...' }[state.busyAction] || '处理中...';
+      var dis = lock ? ' disabled' : '';
+      var act = state.busy ? state.busyAction : '';
+
       if (state.running) {
         actions.innerHTML =
-          '<button class="btn btn-outline btn-lg" onclick="doAction(\'stop\')">' +
-          '<svg class="icon-sm"><use href="#i-stop-circle"/></svg>停止</button>' +
-          '<button class="btn btn-primary btn-lg" onclick="doAction(\'restart\')">' +
-          '<svg class="icon-sm"><use href="#i-rotate-cw"/></svg>重启服务</button>' +
-          '<button class="btn btn-danger btn-lg" onclick="openQwenPaw()">' +
+          '<button class="btn btn-outline btn-lg" onclick="doAction(\'stop\')"' + dis + '>' +
+          '<svg class="icon-sm"><use href="#i-stop-circle"/></svg>' +
+          (act === 'stop' ? spin + busyText : '停止') + '</button>' +
+          '<button class="btn btn-primary btn-lg" onclick="doAction(\'restart\')"' + dis + '>' +
+          '<svg class="icon-sm"><use href="#i-rotate-cw"/></svg>' +
+          (act === 'restart' ? spin + busyText : (upgradeBusy ? spin + '内核升级中...' : '重启服务')) + '</button>' +
+          '<button class="btn btn-danger btn-lg" onclick="openQwenPaw()"' + dis + '>' +
           '<svg class="icon-sm"><use href="#i-external-link"/></svg>打开 QwenPaw</button>';
       } else {
-        /* 服务已停止：启动可用，停止置灰不可点（参考 com.dustinky.qwenpaw 控制台） */
         actions.innerHTML =
           '<button class="btn btn-outline btn-lg" disabled>' +
           '<svg class="icon-sm"><use href="#i-stop-circle"/></svg>停止</button>' +
-          '<button class="btn btn-primary btn-lg" onclick="doAction(\'start\')">' +
-          '<svg class="icon-sm"><use href="#i-play"/></svg>启动服务</button>';
+          '<button class="btn btn-primary btn-lg" onclick="doAction(\'start\')"' + dis + '>' +
+          '<svg class="icon-sm"><use href="#i-play"/></svg>' +
+          (act === 'start' ? spin + busyText : (upgradeBusy ? spin + '内核升级中...' : '启动服务')) + '</button>';
       }
     }
     function tickRuntime() {
@@ -2232,12 +2238,14 @@
 
     /* ================= 服务控制 ================= */
     function doAction(action) {
-      if (state.busy) return;
+      if (state.busy) return; /* 忙碌时按钮已置灰，这里仅兜底防重复提交 */
       var doIt = function () {
         state.busy = true;
+        state.busyAction = action; /* 供按钮显示「停止中…/重启中…」 */
         renderActions(document.getElementById('statusActions'));
         apiPost('api/' + action).then(function (d) {
           state.busy = false;
+          state.busyAction = '';
           if (d && d.success) {
             toast(d.message || '操作成功', 'success');
           } else {
@@ -2248,6 +2256,7 @@
           renderActions(document.getElementById('statusActions'));
         }).catch(function () {
           state.busy = false;
+          state.busyAction = '';
           toast('请求失败，请检查网络', 'error');
           renderActions(document.getElementById('statusActions'));
         });
@@ -2816,9 +2825,11 @@
       confirmAction = null;
     }
     function confirmOkAction() {
+      /* 必须先取出回调再关闭：closeConfirm() 会把 confirmAction 置空，
+         先关闭再取值会导致确认后什么都不执行（停止/清空日志/重置等操作全部失效） */
+      var fn = confirmAction;
       closeConfirm();
-      if (confirmAction) confirmAction();
-      confirmAction = null;
+      if (typeof fn === 'function') fn();
     }
     document.getElementById('confirmMask').addEventListener('click', function (e) {
       if (e.target === this) closeConfirm();

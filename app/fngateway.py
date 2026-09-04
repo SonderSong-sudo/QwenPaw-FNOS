@@ -57,7 +57,7 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 STATUS_CACHE_TTL = 60
 
 # 应用安装包版本（与 manifest 的 version 保持同步；升级时同步更新）
-APP_VERSION = "26.8.50"
+APP_VERSION = "26.8.51"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
 # 应用框架更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
@@ -778,14 +778,80 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
     def _build_upgrade_script(self, venv_python: str, pid_file: str, log_file: str,
                               up_log: str, up_pid: str, up_result: str, start_cmd: str) -> str:
-        """构造后台升级脚本：pip 升级内核 -> 再启动服务（自包含，页面关闭也不中断）。
+        """构造后台升级脚本：停止服务 -> pip 升级内核 -> 再启动服务（自包含，页面关闭也不中断）。
 
-        停止服务已由 start_upgrade 在派发脚本前同步完成（stop_service 含端口释放
-        校验，等内核真正退出）。顺序很重要：必须内核完全停止后再 pip——pip 直接
-        替换 venv 里运行中内核的 site-packages 文件，会导致运行中的 QwenPaw 进程
-        import 失败当场崩溃（用户反馈「第一次升级闪退」）。
+        全流程都在脚本里、HTTP 请求立即返回（对齐 com.dustinky.qwenpaw：升级请求只负责
+        拉起后台脚本）。此前停止服务是在请求线程里同步做的（最长约 26s：优雅等待 15s +
+        端口校验 10s），请求迟迟不返回，前端 40s 超时后弹「升级请求失败」并复位按钮，
+        而此时内核已停止、pip 仍在后台跑——用户看到的就是「更新过程中闪退」。
+
+        顺序很重要：必须内核完全停止后再 pip——pip 会替换 venv 里运行中内核的
+        site-packages 文件，导致运行中的 QwenPaw 进程 import 失败当场崩溃。
         """
+        port = str(self.cfg.get("port", "2277"))
+        cur_pid = self.read_pid()
+
         s = ""
+        s += ': > "' + up_log + '"\n'
+        s += 'echo "=== QwenPaw 内核升级开始 ===" >> "' + up_log + '"\n'
+        s += 'echo "时间: $(date \'+%Y-%m-%d %H:%M:%S\')" >> "' + up_log + '"\n'
+        s += 'echo "" >> "' + up_log + '"\n'
+
+        # --- 工具函数：残留内核清理 / 端口探测 ---
+        s += (
+            '# 清理残留内核进程（旧版单杀 bash 留下的孤儿、升级中断遗留等）：\n'
+            '# 扫 /proc 按内核命令特征匹配，不依赖 pkill/procps\n'
+            'sweep_kernels() {\n'
+            '  local p pid cmd\n'
+            '  for p in /proc/[0-9]*; do\n'
+            '    pid="${p#/proc/}"\n'
+            '    [ "$pid" = "$$" ] && continue\n'
+            '    [ -r "$p/cmdline" ] || continue\n'
+            '    cmd=$(tr \'\\0\' \' \' < "$p/cmdline" 2>/dev/null) || continue\n'
+            '    case "$cmd" in\n'
+            '      *"-m qwenpaw app"*"--port ' + port + '"*)\n'
+            '        echo "  清理残留内核进程 $pid" >> "' + up_log + '"\n'
+            '        kill -TERM "$pid" 2>/dev/null\n'
+            '        sleep 1\n'
+            '        kill -KILL "$pid" 2>/dev/null\n'
+            '        ;;\n'
+            '    esac\n'
+            '  done\n'
+            '}\n'
+            'port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/' + port + '") 2>/dev/null; }\n'
+            '\n'
+        )
+
+        # --- 1) 停止服务（等内核真正退出 + 端口释放校验） ---
+        s += 'echo "[1/3] 正在停止 QwenPaw 服务..." >> "' + up_log + '"\n'
+        if cur_pid:
+            s += (
+                'kill -TERM "' + cur_pid + '" 2>/dev/null\n'
+                'i=0\n'
+                'while kill -0 "' + cur_pid + '" 2>/dev/null && [ $i -lt 15 ]; do i=$((i+1)); sleep 1; done\n'
+                'if kill -0 "' + cur_pid + '" 2>/dev/null; then\n'
+                '  echo "  优雅停止超时，强制结束进程" >> "' + up_log + '"\n'
+                '  kill -KILL "' + cur_pid + '" 2>/dev/null\n'
+                '  sleep 1\n'
+                'fi\n'
+            )
+        else:
+            s += 'echo "  未记录到运行中的进程，跳过停止" >> "' + up_log + '"\n'
+        s += (
+            'sweep_kernels\n'
+            'i=0\n'
+            'while port_busy && [ $i -lt 10 ]; do\n'
+            '  i=$((i+1))\n'
+            '  echo "  端口 ' + port + ' 仍被占用，继续清理（$i/10）" >> "' + up_log + '"\n'
+            '  sweep_kernels\n'
+            '  sleep 1\n'
+            'done\n'
+            'rm -f "' + pid_file + '"\n'
+            'echo "  服务已停止" >> "' + up_log + '"\n'
+            'echo "" >> "' + up_log + '"\n'
+        )
+
+        # --- 2) pip 升级（镜像 + 代理） ---
         # pip 下载通道：向导镜像 + 已配置的网络代理（此前裸连 PyPI，检查更新能过
         # 但下载必挂的坑——检查走 _build_update_opener 代理，pip 却没注入）
         pip_env = self.proxy_env()
@@ -793,10 +859,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             pip_env += " && "
         pip_cmd = ("PYTHONUNBUFFERED=1 %s\"%s\" -m pip install --upgrade --no-input qwenpaw %s"
                    % (pip_env, venv_python, self._pip_mirror_args()))
-        s += ': > "' + up_log + '"\n'
-        s += 'echo "=== QwenPaw 内核升级开始 ===" >> "' + up_log + '"\n'
-        s += 'echo "时间: $(date \'+%Y-%m-%d %H:%M:%S\')" >> "' + up_log + '"\n'
-        s += 'echo "" >> "' + up_log + '"\n'
+        s += 'echo "[2/3] 正在升级 QwenPaw 内核..." >> "' + up_log + '"\n'
         s += 'echo "$ ' + pip_cmd.replace('"', '') + '" >> "' + up_log + '"\n'
         s += pip_cmd + ' >> "' + up_log + '" 2>&1\n'
         s += 'rc=$?\n'
@@ -804,14 +867,28 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         s += 'if [ $rc -eq 0 ]; then\n'
         s += '  echo "=== 内核升级成功 ===" >> "' + up_log + '"\n'
         s += 'else\n'
-        s += '  echo "=== 内核升级失败 (exit code: $rc)，尝试以当前文件重启服务 ===" >> "' + up_log + '"\n'
+        s += '  echo "=== 内核升级失败 (exit code: $rc)，仍尝试以当前文件启动服务 ===" >> "' + up_log + '"\n'
         s += 'fi\n'
-        s += 'echo "正在启动 QwenPaw 服务..." >> "' + up_log + '"\n'
-        # setsid 让内核进程成为新会话/组长（与 start_service 的 start_new_session 对齐），
-        # 否则后续"按进程组停止"对其无效
-        s += '  setsid bash -c \'' + start_cmd + '\' >> "' + log_file + '" 2>&1 &\n'
-        s += '  echo $! > "' + pid_file + '"\n'
-        s += '  echo "QwenPaw 已启动" >> "' + up_log + '"\n'
+        s += 'echo "" >> "' + up_log + '"\n'
+
+        # --- 3) 启动服务 ---
+        s += 'echo "[3/3] 正在启动 QwenPaw 服务..." >> "' + up_log + '"\n'
+        # echo $$ 由内层 bash 在 exec 之前写出：exec 后 pid 不变，记录的即内核 pid。
+        # 不能用 $!——setsid 在调用方已是组长时会 fork，记录到的是 setsid 包装进程，
+        # 导致 pid 文件与真实内核错位（停止失效、状态显示已停止）。
+        # setsid 让内核成为新会话/组长（与 start_service 的 start_new_session 对齐）；
+        # 极简环境可能没有 setsid，降级为直接后台启动。
+        # 注意：start_cmd 以 export 开头、末尾自带 exec，这里只能在前面追加写 pid
+        # 的语句，不能加 exec 前缀（exec export ... 非法，会导致内核根本没起来）
+        s += ('if command -v setsid >/dev/null 2>&1; then\n'
+              '  setsid bash -c \'echo $$ > "' + pid_file + '"; ' + start_cmd + '\''
+              ' >> "' + log_file + '" 2>&1 &\n'
+              'else\n'
+              '  bash -c \'echo $$ > "' + pid_file + '"; ' + start_cmd + '\''
+              ' >> "' + log_file + '" 2>&1 &\n'
+              'fi\n')
+        s += 'sleep 2\n'
+        s += 'echo "QwenPaw 已启动（pid: $(cat "' + pid_file + '" 2>/dev/null)）" >> "' + up_log + '"\n'
         s += 'echo "$rc" > "' + up_result + '"\n'
         s += 'rm -f "' + up_pid + '"\n'
         return s
@@ -848,16 +925,9 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             pid_file = self.cfg.get("pid_file", "")
             start_cmd = self.build_service_command()
 
-            # 先同步停止服务并确认端口释放（内核真正退出后再 pip，
-            # 避免 pip 替换运行中文件导致内核 import 失败闪退）
-            stop_res = self.stop_service()
-            logger.info("升级前停止服务: %s" % stop_res.get("message", ""))
-            if not stop_res.get("success"):
-                return {
-                    "success": False,
-                    "message": "升级前停止服务失败（%s），已取消升级" % stop_res.get("message", ""),
-                }
-
+            # 注意：停止服务不再在这里同步执行——它最长约 26s（优雅等待 15s +
+            # 端口校验 10s），会拖住本次请求直到前端/网关超时。整个
+            # 「停止 -> pip -> 启动」链路已移入后台脚本，这里只负责派发。
             script = self._build_upgrade_script(
                 venv_python, pid_file, log_file, up_log, up_pid, up_result, start_cmd
             )
