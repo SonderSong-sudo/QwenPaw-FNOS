@@ -875,15 +875,20 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
     def _build_upgrade_script(self, venv_python: str, pid_file: str, log_file: str,
                               up_log: str, up_pid: str, up_result: str, start_cmd: str) -> str:
-        """构造后台升级脚本：停止服务 -> pip 升级内核 -> 再启动服务（自包含，页面关闭也不中断）。
+        """构造后台升级脚本：pip 升级内核（服务保持运行）-> 成功才停止并重启（自包含，页面关闭也不中断）。
 
         全流程都在脚本里、HTTP 请求立即返回（对齐 com.dustinky.qwenpaw：升级请求只负责
         拉起后台脚本）。此前停止服务是在请求线程里同步做的（最长约 26s：优雅等待 15s +
         端口校验 10s），请求迟迟不返回，前端 40s 超时后弹「升级请求失败」并复位按钮，
         而此时内核已停止、pip 仍在后台跑——用户看到的就是「更新过程中闪退」。
 
-        顺序很重要：必须内核完全停止后再 pip——pip 会替换 venv 里运行中内核的
-        site-packages 文件，导致运行中的 QwenPaw 进程 import 失败当场崩溃。
+        顺序（先 pip 后停服）：升级期间服务照常运行、控制台不掉线；pip 失败时服务
+        完全不受影响、无需重开控制台再点一次，直接重试即可。只有 pip 成功才做一次
+        「停止 -> 启动」换新内核——这个重启不可省（内核必须重启才能加载新代码），
+        但从"两次断连"压缩为"成功路径上的一次"。
+        权衡：pip 替换 site-packages 时运行中内核若恰好首次 import 被替换的模块，
+        理论上可能报错——窗口仅在 pip 落盘的几秒内，且内核模块在启动时基本加载完毕，
+        实际风险远小于旧顺序"每次升级必断连 + 失败也重启"的体验损耗。
         """
         port = str(self.cfg.get("port", "2277"))
         cur_pid = self.read_pid()
@@ -919,8 +924,31 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             '\n'
         )
 
-        # --- 1) 停止服务（等内核真正退出 + 端口释放校验） ---
-        s += 'echo "[1/3] 正在停止 QwenPaw 服务..." >> "' + up_log + '"\n'
+        # --- 1) pip 升级（服务保持运行，控制台不掉线） ---
+        # pip 下载通道：向导镜像 + 已配置的网络代理（此前裸连 PyPI，检查更新能过
+        # 但下载必挂的坑——检查走 _build_update_opener 代理，pip 却没注入）
+        pip_env = self.proxy_env()
+        if pip_env:
+            pip_env += " && "
+        pip_cmd = ("PYTHONUNBUFFERED=1 %s\"%s\" -m pip install --upgrade --no-input qwenpaw %s"
+                   % (pip_env, venv_python, self._pip_mirror_args()))
+        s += 'echo "[1/3] 正在升级 QwenPaw 内核（服务保持运行）..." >> "' + up_log + '"\n'
+        s += 'echo "$ ' + pip_cmd.replace('"', '') + '" >> "' + up_log + '"\n'
+        s += pip_cmd + ' >> "' + up_log + '" 2>&1\n'
+        s += 'rc=$?\n'
+        s += 'echo "" >> "' + up_log + '"\n'
+        s += 'if [ $rc -ne 0 ]; then\n'
+        s += ('  echo "=== 内核升级失败 (exit code: $rc)，服务保持运行未受影响，'
+              '可排查后直接重试 ===" >> "' + up_log + '"\n')
+        s += '  echo "$rc" > "' + up_result + '"\n'
+        s += '  rm -f "' + up_pid + '"\n'
+        s += '  exit 0\n'
+        s += 'fi\n'
+        s += 'echo "=== 内核升级成功 ===" >> "' + up_log + '"\n'
+        s += 'echo "" >> "' + up_log + '"\n'
+
+        # --- 2) 停止服务（pip 成功后才执行，等内核真正退出 + 端口释放校验） ---
+        s += 'echo "[2/3] 正在停止 QwenPaw 服务..." >> "' + up_log + '"\n'
         if cur_pid:
             s += (
                 'kill -TERM "' + cur_pid + '" 2>/dev/null\n'
@@ -947,26 +975,6 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             'echo "  服务已停止" >> "' + up_log + '"\n'
             'echo "" >> "' + up_log + '"\n'
         )
-
-        # --- 2) pip 升级（镜像 + 代理） ---
-        # pip 下载通道：向导镜像 + 已配置的网络代理（此前裸连 PyPI，检查更新能过
-        # 但下载必挂的坑——检查走 _build_update_opener 代理，pip 却没注入）
-        pip_env = self.proxy_env()
-        if pip_env:
-            pip_env += " && "
-        pip_cmd = ("PYTHONUNBUFFERED=1 %s\"%s\" -m pip install --upgrade --no-input qwenpaw %s"
-                   % (pip_env, venv_python, self._pip_mirror_args()))
-        s += 'echo "[2/3] 正在升级 QwenPaw 内核..." >> "' + up_log + '"\n'
-        s += 'echo "$ ' + pip_cmd.replace('"', '') + '" >> "' + up_log + '"\n'
-        s += pip_cmd + ' >> "' + up_log + '" 2>&1\n'
-        s += 'rc=$?\n'
-        s += 'echo "" >> "' + up_log + '"\n'
-        s += 'if [ $rc -eq 0 ]; then\n'
-        s += '  echo "=== 内核升级成功 ===" >> "' + up_log + '"\n'
-        s += 'else\n'
-        s += '  echo "=== 内核升级失败 (exit code: $rc)，仍尝试以当前文件启动服务 ===" >> "' + up_log + '"\n'
-        s += 'fi\n'
-        s += 'echo "" >> "' + up_log + '"\n'
 
         # --- 3) 启动服务 ---
         s += 'echo "[3/3] 正在启动 QwenPaw 服务..." >> "' + up_log + '"\n'
@@ -1052,9 +1060,8 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             pid_file = self.cfg.get("pid_file", "")
             start_cmd = self.build_service_command()
 
-            # 注意：停止服务不再在这里同步执行——它最长约 26s（优雅等待 15s +
-            # 端口校验 10s），会拖住本次请求直到前端/网关超时。整个
-            # 「停止 -> pip -> 启动」链路已移入后台脚本，这里只负责派发。
+            # 注意：整个「pip 升级 -> 停止 -> 启动」链路都在后台脚本里执行
+            # （pip 在前、服务保持运行，成功才重启），这里只负责派发。
             script = self._build_upgrade_script(
                 venv_python, pid_file, log_file, up_log, up_pid, up_result, start_cmd
             )
@@ -1869,7 +1876,7 @@ QWENPAW_BRIDGE_SCRIPT = r"""<script>
 (function(){
   // 网关侧注入的子路径基准（如 /app/qwenpaw_yuexps/qwenpaw）。
   // 优先用注入值：SPA 路由脱前缀后 location.pathname 不可靠，必须由网关钉死。
-  var B = "__GW_BASE__" || location.pathname.replace(/\\/+$/,'');
+  var B = "__GW_BASE__" || location.pathname.replace(/\/+$/,'');
   // 网关注入：应用子路径 basename（如 /app/qwenpaw_yuexps/qwenpaw）。
   // 上游 QwenPaw WebUI（react-router v7）用 n6(pathname) 推断 basename，但其正则只认
   // /console 一种前缀；fnOS 网关路径 /app/<appid>/qwenpaw/ 无法被识别 -> basename 退化为
