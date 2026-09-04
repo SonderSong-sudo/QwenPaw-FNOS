@@ -45,32 +45,67 @@ export npm_config_tmp="${TRIM_PKGVAR}/.npm-tmp"
 export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH="/var/apps/Chrome-for-Testing-yuexps/target/chrome-headless-shell"
 
-# 日志轮转函数 (单文件超3MB轮转，日期命名，保留最近3个备份)
-rotate_log() {
-    local target_log="$1"
-    local max_size=$((3 * 1024 * 1024))
-    local max_backups=3
+# ===== 按天日志归档 =====
+# 每天一个日志文件：logs/qwenpaw-console-YYYYMMDD.log（运行日志）、
+# logs/qwenpaw-gateway-YYYYMMDD.log（网关日志），文件名按当天日期保留；
+# 超过 6 个月（180 天）的日志自动清理。
+# TRIM_PKGVAR 根下 info.log / fngateway.log 保留为「稳定锚点」符号链接指向当天文件，
+# 内核输出 / 控制台网关 / 共享目录软链都经锚点访问，换天自动落到新文件。
+LOG_DIR="${TRIM_PKGVAR}/logs"
+LOG_RETENTION_DAYS=180
 
-    if [ -f "${target_log}" ]; then
-        local current_size=$(stat -c%s "${target_log}" 2>/dev/null || wc -c < "${target_log}" 2>/dev/null || echo 0)
-        if [ "${current_size}" -ge "${max_size}" ]; then
-            local log_dir=$(dirname "${target_log}")
-            local log_base=$(basename "${target_log}" .log)
-            local timestamp=$(date '+%Y%m%d_%H%M%S')
-            local backup_file="${log_dir}/${log_base}_${timestamp}.log"
+# 清理 6 个月之前的日志文件
+cleanup_old_logs() {
+    [ -d "${LOG_DIR}" ] || return 0
+    find "${LOG_DIR}" -maxdepth 1 -type f -name 'qwenpaw-*.log' \
+        -mtime +"${LOG_RETENTION_DAYS}" -delete 2>/dev/null || true
+}
 
-            mv "${target_log}" "${backup_file}"
-            touch "${target_log}"
-
-            # 清理超出数量的旧备份
-            ls -1t "${log_dir}/${log_base}_"*.log 2>/dev/null | tail -n +$((max_backups + 1)) | xargs -r rm -f
+# 旧版（<=26.8.54）日志是 TRIM_PKGVAR 根下的普通文件，升级/首次写入时并入当天文件
+migrate_legacy_logs() {
+    local today console_file gateway_file
+    today=$(date '+%Y%m%d')
+    mkdir -p "${LOG_DIR}" 2>/dev/null || true
+    console_file="${LOG_DIR}/qwenpaw-console-${today}.log"
+    gateway_file="${LOG_DIR}/qwenpaw-gateway-${today}.log"
+    if [ -f "${LOG_FILE}" ] && [ ! -L "${LOG_FILE}" ]; then
+        if [ -f "${console_file}" ]; then
+            cat "${LOG_FILE}" >> "${console_file}" 2>/dev/null || true
+            rm -f "${LOG_FILE}"
+        else
+            mv "${LOG_FILE}" "${console_file}"
         fi
+    fi
+    if [ -f "${GATEWAY_LOG_FILE}" ] && [ ! -L "${GATEWAY_LOG_FILE}" ]; then
+        if [ -f "${gateway_file}" ]; then
+            cat "${GATEWAY_LOG_FILE}" >> "${gateway_file}" 2>/dev/null || true
+            rm -f "${GATEWAY_LOG_FILE}"
+        else
+            mv "${GATEWAY_LOG_FILE}" "${gateway_file}"
+        fi
+    fi
+}
+
+# 断言锚点指向当天文件：换天 / 首写 / 升级后首次 log_msg 时自动切换并清理过期日志。
+# readlink 比对命中时零开销（每行日志仅一次 readlink），避免每条日志都跑 find。
+ensure_daily_logs() {
+    mkdir -p "${LOG_DIR}" 2>/dev/null || true
+    local today console_link gateway_link cur
+    today=$(date '+%Y%m%d')
+    console_link="logs/qwenpaw-console-${today}.log"
+    gateway_link="logs/qwenpaw-gateway-${today}.log"
+    cur=$(readlink "${LOG_FILE}" 2>/dev/null || true)
+    if [ "${cur}" != "${console_link}" ]; then
+        migrate_legacy_logs
+        ln -sfn "${console_link}" "${LOG_FILE}" 2>/dev/null || true
+        ln -sfn "${gateway_link}" "${GATEWAY_LOG_FILE}" 2>/dev/null || true
+        cleanup_old_logs
     fi
 }
 
 # 日志函数
 log_msg() {
-    mkdir -p "$(dirname "${LOG_FILE}")"
+    ensure_daily_logs
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
 }
 
@@ -102,8 +137,7 @@ check_process() {
 
 # 检查应用状态
 status() {
-    rotate_log "${LOG_FILE}"
-    rotate_log "${GATEWAY_LOG_FILE}"
+    ensure_daily_logs
     ensure_gateway
 
     if [ -f "${PID_FILE}" ]; then
@@ -155,9 +189,8 @@ start_process() {
         fi
     fi
 
-    # 启动前检查并轮转日志
-    rotate_log "${LOG_FILE}"
-    rotate_log "${GATEWAY_LOG_FILE}"
+    # 启动前确保日志锚点指向当天文件（顺带清理 6 个月前的过期日志）
+    ensure_daily_logs
 
     log_msg "正在启动 ${APP_NAME} ..."
 

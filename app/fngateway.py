@@ -11,11 +11,13 @@ QwenPaw 飞牛控制台网关
 2. 提供服务管理 REST API：
    - GET  /api/status      -> 运行状态（running/pid/startAt/version/authEnabled）
    - GET  /api/config      -> 服务配置（port/working_dir/auth_enabled/access_mode/...）
-   - GET  /api/logs        -> 运行日志（默认最近 500 行，剥除 ANSI）
+   - GET  /api/logs        -> 运行日志（默认最近 500 行，剥除 ANSI；?file= 读取指定历史文件）
+   - GET  /api/logs_list   -> 日志目录按天归档文件列表（日期/大小/当前标记）
+   - GET  /api/logs_download -> 下载日志（?file= 指定历史文件，缺省当前运行日志）
    - POST /api/start       -> 启动 QwenPaw 服务
    - POST /api/stop        -> 停止 QwenPaw 服务
    - POST /api/restart     -> 重启 QwenPaw 服务
-   - POST /api/clear_logs  -> 清空运行日志
+   - POST /api/clear_logs  -> 清空当前（当日）运行日志
    - GET  /api/check_update    -> 双层版本检查（内核 PyPI / 应用框架 GitHub Releases）
    - POST /api/action {upgrade}-> 后台 pip 升级内核并自动重启服务
    - GET  /api/upgrade_status  -> 升级进行中状态（结束后返回 exit code）
@@ -55,6 +57,11 @@ logger = logging.getLogger("fngateway")
 
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 STATUS_CACHE_TTL = 60
+
+# 按天归档日志文件名（cmd/common 侧生成的 daily 文件与此保持一致）
+LOG_FILE_PAT = re.compile(r"^qwenpaw-(console|gateway)-(\d{8})\.log$")
+# 日志保留时长（与 cmd/common LOG_RETENTION_DAYS 一致）：6 个月
+LOG_RETENTION_DAYS = 180
 
 # 应用安装包版本（与 manifest 的 version 保持同步；升级时同步更新）
 APP_VERSION = "26.8.54"
@@ -459,9 +466,93 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             logger.error(f"读取日志失败: {e}")
         return result
 
-    def read_log_tail(self, lines: int = 500) -> list:
-        """读取运行日志末尾 N 行，剥除 ANSI 颜色码"""
-        return self._tail_lines(self.cfg.get("log_file", ""), lines)
+    def read_log_tail(self, lines: int = 500, path: str = None) -> list:
+        """读取日志文件末尾 N 行（默认当前运行日志），剥除 ANSI 颜色码"""
+        return self._tail_lines(path or self.cfg.get("log_file", ""), lines)
+
+    def _logs_dir(self) -> str:
+        """日志归档目录：与 cmd/common 的 ${TRIM_PKGVAR}/logs 对齐
+
+        log_file 配置是 info.log 锚点（符号链接 -> logs/qwenpaw-console-YYYYMMDD.log），
+        realpath 后即落在归档目录；锚点异常（旧版平铺布局）时回退 dirname/logs。
+        """
+        log_file = self.cfg.get("log_file", "")
+        real = os.path.realpath(log_file) if log_file else ""
+        if real and LOG_FILE_PAT.match(os.path.basename(real)):
+            return os.path.dirname(real)
+        return os.path.join(os.path.dirname(os.path.abspath(log_file or ".")), "logs")
+
+    def _resolve_history_path(self, name: str):
+        """按白名单解析归档目录内的历史日志文件（防目录穿越/非法文件名）
+
+        仅接受 logs/ 下的 qwenpaw-(console|gateway)-YYYYMMDD.log；文件不存在返回 None。
+        """
+        if not name:
+            return None
+        m = LOG_FILE_PAT.match(os.path.basename(str(name)))
+        if not m:
+            return None
+        p = os.path.join(self._logs_dir(), m.group(0))
+        return p if os.path.isfile(p) else None
+
+    def _cleanup_old_logs(self):
+        """清理归档目录中超过 6 个月的日志文件（与 cmd/common cleanup_old_logs 一致）"""
+        logs_dir = self._logs_dir()
+        if not os.path.isdir(logs_dir):
+            return
+        cutoff = time.time() - LOG_RETENTION_DAYS * 86400
+        try:
+            for name in os.listdir(logs_dir):
+                if not LOG_FILE_PAT.match(name):
+                    continue
+                p = os.path.join(logs_dir, name)
+                try:
+                    if os.path.getmtime(p) < cutoff:
+                        os.remove(p)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"清理过期日志失败: {e}")
+
+    def list_log_files(self) -> dict:
+        """GET /api/logs_list：返回归档目录的按天日志文件列表（按日期倒序）"""
+        self._cleanup_old_logs()
+        logs_dir = self._logs_dir()
+        current = set()
+        for key in ("log_file", "gateway_log"):
+            p = self.cfg.get(key, "")
+            if p:
+                current.add(os.path.basename(os.path.realpath(p)))
+        files = []
+        try:
+            names = os.listdir(logs_dir) if os.path.isdir(logs_dir) else []
+        except Exception as e:
+            logger.error(f"读取日志目录失败 {logs_dir}: {e}")
+            names = []
+        for name in names:
+            m = LOG_FILE_PAT.match(name)
+            if not m:
+                continue
+            p = os.path.join(logs_dir, name)
+            try:
+                st = os.stat(p)
+            except Exception:
+                continue
+            files.append({
+                "name": name,
+                "kind": "gateway" if m.group(1) == "gateway" else "console",
+                "date": m.group(2),
+                "size": st.st_size,
+                "mtime": int(st.st_mtime),
+                "current": name in current,
+            })
+        files.sort(key=lambda f: (f["date"], f["name"]), reverse=True)
+        return {
+            "success": True,
+            "dir": logs_dir,
+            "retention_days": LOG_RETENTION_DAYS,
+            "files": files,
+        }
 
     # ---------------- 服务控制 ----------------
 
@@ -582,6 +673,11 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         return self.start_service()
 
     def clear_logs(self) -> dict:
+        """清空当前（当日）运行日志与网关日志；历史按天文件不受影响
+
+        锚点文件由内核/网关以 O_APPEND 方式持有，truncate 后下一次追加会从 0 继续，
+        不会出现空洞。顺带执行过期日志清理。
+        """
         for key in ("log_file", "gateway_log"):
             path = self.cfg.get(key, "")
             if path:
@@ -589,6 +685,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
                     open(path, "w").close()
                 except Exception:
                     pass
+        self._cleanup_old_logs()
         return {"success": True, "message": "日志已清空"}
 
     # ---------------- 版本升级 ----------------
@@ -1244,15 +1341,33 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
 
         if action == "logs":
             lines = 500
+            fname = None
             try:
                 query = self.path.split("?", 1)[1] if "?" in self.path else ""
                 for kv in query.split("&"):
-                    if kv.startswith("lines="):
-                        lines = int(kv.split("=", 1)[1])
+                    if not kv:
+                        continue
+                    k, _, v = kv.partition("=")
+                    if k == "lines":
+                        lines = int(v)
+                    elif k == "file":
+                        # 归档文件名均为 ASCII（qwenpaw-console-YYYYMMDD.log），无需 unquote
+                        fname = v
             except Exception:
                 pass
-            logs = server.read_log_tail(max(50, min(lines, 2000)))
+            if fname:
+                path = server._resolve_history_path(fname)
+                if not path:
+                    self.send_json({"success": False, "message": "日志文件不存在或不允许访问"})
+                    return
+            else:
+                path = None
+            logs = server.read_log_tail(max(50, min(lines, 2000)), path=path)
             self.send_json({"success": True, "logs": logs})
+            return
+
+        if action == "logs_list":
+            self.send_json(server.list_log_files())
             return
 
         if action == "check_update":
@@ -1274,7 +1389,15 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
             return
 
         if action == "logs_download":
-            self.handle_logs_download()
+            fname = None
+            try:
+                query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                for kv in query.split("&"):
+                    if kv.startswith("file="):
+                        fname = kv.split("=", 1)[1]
+            except Exception:
+                pass
+            self.handle_logs_download(fname)
             return
 
         if method != "POST":
@@ -1360,16 +1483,28 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
-    def handle_logs_download(self):
-        """GET /api/logs_download：返回完整运行日志附件（剥除 ANSI 的纯文本）
+    def handle_logs_download(self, file_name: str = None):
+        """GET /api/logs_download?file=<归档文件名>：下载历史日志附件（剥除 ANSI 纯文本）
 
+        不传 file 时下载当前运行日志（info.log 锚点实际指向的当日文件）。
         参考 dhs 的 GET /logs/download：前端 window.open 打开即触发下载。
         日志文件由内核持续追加写入，读取后原地保留不清除。
         """
-        path = self.server.cfg.get("log_file", "")
-        if not path or not os.path.exists(path):
-            self.send_json({"success": False, "message": "日志文件不存在"})
-            return
+        if file_name:
+            path = self.server._resolve_history_path(file_name)
+            if not path:
+                self.send_json({"success": False, "message": "日志文件不存在或不允许访问"})
+                return
+            disp = os.path.basename(path)
+        else:
+            path = self.server.cfg.get("log_file", "")
+            if not path or not os.path.exists(path):
+                self.send_json({"success": False, "message": "日志文件不存在"})
+                return
+            real = os.path.realpath(path)
+            disp = os.path.basename(real)
+            if not LOG_FILE_PAT.match(disp):
+                disp = "qwenpaw-console-%s.log" % time.strftime("%Y%m%d-%H%M%S")
         try:
             with open(path, encoding="utf-8", errors="ignore") as f:
                 raw = f.read()
@@ -1378,11 +1513,10 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
             self.send_json({"success": False, "message": "读取日志失败"})
             return
         body = ANSI_ESCAPE.sub("", raw).encode("utf-8")
-        name = "qwenpaw-console-%s.log" % time.strftime("%Y%m%d-%H%M%S")
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
+            self.send_header("Content-Disposition", 'attachment; filename="%s"' % disp)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
