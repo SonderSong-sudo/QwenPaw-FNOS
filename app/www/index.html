@@ -2051,14 +2051,17 @@
       if (!el) {
         el = document.createElement('div');
         el.id = 'topToast';
+        el.className = 'toast top-toast';
+        /* 仅保留位置/动画/宽度/居中相关 inline；背景/边框/字体由 .toast.success 等接管 */
         el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9999;' +
-          'padding:10px 18px;border-radius:10px;font-size:13px;line-height:1.5;color:#fff;' +
+          'padding:10px 18px;border-radius:10px;font-size:13px;line-height:1.5;' +
           'box-shadow:0 6px 24px rgba(0,0,0,.25);transition:opacity .3s;max-width:82%;text-align:center;display:none;';
         document.body.appendChild(el);
       }
+      /* 切换类型 class（success/error/warning）让 .toast.success 等接管样式 */
+      el.classList.remove('success', 'error', 'warning');
+      if (type) el.classList.add(type);
       if (topToastLast !== msg) { el.textContent = msg; topToastLast = msg; }
-      el.style.background = type === 'error' ? 'rgba(220,38,38,.95)'
-        : (type === 'warning' ? 'rgba(217,119,6,.95)' : 'rgba(22,163,74,.95)');
       el.style.display = 'block';
       el.style.opacity = '1';
       clearTimeout(topToastTimer);
