@@ -1099,16 +1099,14 @@
     /* ============ Toast ============ */
     .toast-wrap {
       position: fixed;
-      top: auto;
-      left: auto;
-      bottom: 24px;
-      right: 24px;
-      transform: none;
-      z-index: 9998;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
       display: flex;
       flex-direction: column;
       gap: 8px;
-      align-items: flex-end;
+      align-items: center;
       pointer-events: none;
     }
 
@@ -2249,7 +2247,8 @@
           state.busy = false;
           state.busyAction = '';
           if (d && d.success) {
-            toast(d.message || '操作成功', 'success');
+            /* 成功走顶部横幅，所有弹窗集中上方不分散右下角 */
+            topToast(d.message || '操作成功', 'success');
           } else {
             toast((d && d.message) || '操作失败', 'error');
           }
