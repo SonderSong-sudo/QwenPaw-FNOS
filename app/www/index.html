@@ -2358,6 +2358,7 @@
 
     /* ================= 状态 ================= */
     var statusBaseline = false; /* 首次拉取只记基线，之后 服务停止→运行 转变时提示启动成功 */
+    var suppressStartToastUntil = 0; /* 升级收尾后 60s 内不弹通用「启动成功」——升级自带完成/失败横幅（topToast 单例，别把结果横幅顶掉） */
     function fetchStatus() {
       var prev = state.running;
       return apiGet('api/status').then(function (d) {
@@ -2370,7 +2371,9 @@
         if (!statusBaseline) {
           statusBaseline = true;
         } else if (!prev && state.running && !upgradeBusy) {
-          topToast('启动成功', 'success');
+          if (Date.now() >= suppressStartToastUntil) {
+            topToast('启动成功', 'success');
+          }
         }
       }).catch(function () { });
     }
@@ -2795,6 +2798,7 @@
     }
     function finishUpgrade(d) {
       upgradeBusy = false;
+      suppressStartToastUntil = Date.now() + 60000; /* 升级脚本末尾的自动重启会让状态走 停止→运行，别让通用横幅覆盖升级结果 */
       apiGet('api/upgrade_logs').then(function (ld) {
         renderUpgradeLog(ld && ld.logs ? ld.logs : [], false);
       }).catch(function () { });
