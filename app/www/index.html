@@ -1116,9 +1116,9 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      background: var(--ui-bg-card);
-      border: 1px solid var(--ui-border);
-      color: var(--ui-text);
+      background: var(--ui-text);
+      border: 1px solid transparent;
+      color: #fff;
       padding: 10px 16px;
       border-radius: 10px;
       box-shadow: var(--shadow-md);
@@ -1129,18 +1129,21 @@
     }
 
     .toast.success {
-      border-color: var(--ui-success);
-      color: var(--ui-success);
+      background: rgba(22, 163, 74, 0.95);
+      border-color: transparent;
+      color: #fff;
     }
 
     .toast.error {
-      border-color: var(--ui-error);
-      color: var(--ui-error);
+      background: rgba(220, 38, 38, 0.95);
+      border-color: transparent;
+      color: #fff;
     }
 
     .toast.warning {
-      border-color: var(--ui-warning);
-      color: var(--ui-warning);
+      background: rgba(217, 119, 6, 0.95);
+      border-color: transparent;
+      color: #fff;
     }
 
     @keyframes slideIn {
