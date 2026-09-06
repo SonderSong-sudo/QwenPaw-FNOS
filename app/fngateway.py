@@ -468,7 +468,52 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
     def read_log_tail(self, lines: int = 500, path: str = None) -> list:
         """读取日志文件末尾 N 行（默认当前运行日志），剥除 ANSI 颜色码"""
-        return self._tail_lines(path or self.cfg.get("log_file", ""), lines)
+        return self._tail_lines(path or self._resolve_live_log("log_file"), lines)
+
+    def _resolve_live_log(self, key: str) -> str:
+        """解析「实际仍在被写入」的运行日志文件路径。
+
+        锚点（info.log 软链）由 cmd 生命周期脚本换天重链，而内核 stdout fd 锚定
+        启动当天文件——服务连续运行跨天时两者会分裂（fd 仍写启动日文件，锚点
+        指向新的空/悬空文件），表现为日志页清空后一直「暂无日志」。
+
+        锚点目标近期（10 分钟内）有写入则直接用之；否则回退归档目录中最近
+        修改的同类日志文件（即内核 fd 实际所写）。
+        """
+        path = self.cfg.get(key, "")
+        if not path:
+            return path
+        real = os.path.realpath(path)
+        live = 0.0
+        try:
+            if os.path.isfile(real):
+                live = os.path.getmtime(real)
+                if time.time() - live < 600:
+                    return real
+        except OSError:
+            pass
+        m = LOG_FILE_PAT.match(os.path.basename(real))
+        if not m:
+            return real
+        kind, logs_dir = m.group(1), os.path.dirname(real)
+        try:
+            best, best_mtime = "", -1.0
+            for name in os.listdir(logs_dir):
+                mm = LOG_FILE_PAT.match(name)
+                if not mm or mm.group(1) != kind:
+                    continue
+                p = os.path.join(logs_dir, name)
+                try:
+                    mt = os.path.getmtime(p)
+                except OSError:
+                    continue
+                if mt > best_mtime:
+                    best, best_mtime = p, mt
+            if best and best_mtime > live:
+                return best
+        except OSError:
+            pass
+        return real
 
     def _logs_dir(self) -> str:
         """日志归档目录：与 cmd/common 的 ${TRIM_PKGVAR}/logs 对齐
@@ -520,9 +565,9 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         logs_dir = self._logs_dir()
         current = set()
         for key in ("log_file", "gateway_log"):
-            p = self.cfg.get(key, "")
+            p = self._resolve_live_log(key)
             if p:
-                current.add(os.path.basename(os.path.realpath(p)))
+                current.add(os.path.basename(p))
         files = []
         try:
             names = os.listdir(logs_dir) if os.path.isdir(logs_dir) else []
@@ -673,13 +718,14 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         return self.start_service()
 
     def clear_logs(self) -> dict:
-        """清空当前（当日）运行日志与网关日志；历史按天文件不受影响
+        """清空当前运行日志与网关日志；历史按天文件不受影响
 
-        锚点文件由内核/网关以 O_APPEND 方式持有，truncate 后下一次追加会从 0 继续，
-        不会出现空洞。顺带执行过期日志清理。
+        经 _resolve_live_log 定位「实际仍在写入」的文件（锚点可能与内核 fd
+        分裂——fd 仍写启动日文件而锚点已切新日期），对真实文件 truncate，
+        O_APPEND 下一次追加从 0 继续，不会出现空洞。顺带执行过期日志清理。
         """
         for key in ("log_file", "gateway_log"):
-            path = self.cfg.get(key, "")
+            path = self._resolve_live_log(key)
             if path:
                 try:
                     open(path, "w").close()
@@ -1510,12 +1556,11 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 return
             disp = os.path.basename(path)
         else:
-            path = self.server.cfg.get("log_file", "")
+            path = self.server._resolve_live_log("log_file")
             if not path or not os.path.exists(path):
                 self.send_json({"success": False, "message": "日志文件不存在"})
                 return
-            real = os.path.realpath(path)
-            disp = os.path.basename(real)
+            disp = os.path.basename(path)
             if not LOG_FILE_PAT.match(disp):
                 disp = "qwenpaw-console-%s.log" % time.strftime("%Y%m%d-%H%M%S")
         try:
