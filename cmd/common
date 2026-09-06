@@ -36,8 +36,15 @@ export QWENPAW_LOG_LEVEL="${qwenpaw_log_level:-info}"
 mkdir -p "${TRIM_PKGVAR}/data" 2>/dev/null || true
 printf '%s' "${qwenpaw_pypi_mirror:-tsinghua}" > "${TRIM_PKGVAR}/data/pypi_mirror" 2>/dev/null || true
 
-# Node.js (可选)
-export PATH="/var/apps/nodejs_v22/target/bin:$PATH"
+# Node.js (可选)：fnOS 应用商店的 Node.js 应用（appid 如 nodejs_v22 / nodejs_v24）。
+# 不写死版本——按实际安装探测，目录里确有 node 可执行文件才注入 PATH。
+for _ndir in /var/apps/*node*/target/bin; do
+    if [ -x "${_ndir}/node" ]; then
+        export PATH="${_ndir}:$PATH"
+        break
+    fi
+done
+unset _ndir
 export npm_config_cache="${TRIM_PKGVAR}/.npm-cache"
 export npm_config_tmp="${TRIM_PKGVAR}/.npm-tmp"
 
