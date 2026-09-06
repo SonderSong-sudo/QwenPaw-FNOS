@@ -2887,9 +2887,12 @@
     /* ================= 日志（终端式，参考 DHS 日志模块） ================= */
     function fetchLogs(notify) {
       var btn = document.getElementById('btnRefreshLogs');
-      var oldHtml = btn.innerHTML;
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>刷新中';
+      var oldHtml;
+      if (notify) { /* 仅手动点击才动按钮；自动轮询静默进行，避免按钮每 3s 闪「刷新中」 */
+        oldHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>刷新中';
+      }
       return apiGet('api/logs?lines=500').then(function (d) {
         if (d && d.success) {
           state.logs = Array.isArray(d.logs) ? d.logs : [];
@@ -2902,8 +2905,10 @@
       }).catch(function () {
         if (notify) toast('获取日志失败', 'error');
       }).finally(function () {
-        btn.disabled = false;
-        btn.innerHTML = oldHtml;
+        if (notify) {
+          btn.disabled = false;
+          btn.innerHTML = oldHtml;
+        }
       });
     }
 
