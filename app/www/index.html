@@ -2571,9 +2571,14 @@
     }
     function renderGateway() {
       document.getElementById('gwProxyPort').value = gateway.proxyPort;
-      document.getElementById('gwPassword').value = '';
+      /* 访问密码显示语义：已设置 -> 填充 ******** 掩码（仅表示「已设置」，不代表真实密码）；
+         掩码未改动保存时省略该字段（密码保持不变）；清空后保存 = 清除密码；输入新值 = 更新 */
+      document.getElementById('gwPassword').value = gateway.passwordSet ? '********' : '';
+      document.getElementById('gwPassword').placeholder = gateway.passwordSet
+        ? '********（已设置；输入新密码可修改，清空后保存即关闭）'
+        : '留空则不启用密码保护';
       document.getElementById('gwPwdHint').textContent = gateway.passwordSet
-        ? '已设置访问密码（输入新密码可修改，留空保存则清除）'
+        ? '已设置访问密码（框内 ******** 仅为已设置标记，非真实密码；输入新密码可修改，清空后保存即关闭密码保护）'
         : '访问该端口前需输入的密码；留空为不启用';
       document.querySelectorAll('#gwModeRow input[name="gwMode"]').forEach(function (el) {
         el.checked = (el.value === gateway.mode);
@@ -2601,10 +2606,13 @@
       var mode = (document.querySelector('#gwModeRow input[name="gwMode"]:checked') || {}).value || 'fngateway';
       var payload = {
         proxy_port: parseInt(document.getElementById('gwProxyPort').value, 10) || 0,
-        access_password: document.getElementById('gwPassword').value,
         access_mode: mode,
         reverse_proxy_url: document.getElementById('gwCustomUrl').value.trim()
       };
+      /* 密码语义：掩码未动（等于占位标记）-> 省略字段，后端保持不变；
+         清空 -> 显式发空串（关闭密码保护）；输入新值 -> 更新 */
+      var pwdInput = document.getElementById('gwPassword').value;
+      if (pwdInput !== '********') payload.access_password = pwdInput;
       apiPost('api/gateway', payload).then(function (d) {
         if (d && d.success) {
           toast(d.message || '设置已保存', 'success');
