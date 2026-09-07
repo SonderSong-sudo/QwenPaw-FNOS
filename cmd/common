@@ -187,6 +187,44 @@ start_process() {
     chmod 711 "${QWENPAW_VENV}"/lib/python* "${QWENPAW_VENV}"/lib/python*/site-packages 2>/dev/null || true
     chmod 644 "${QWENPAW_VENV}/pyvenv.cfg" 2>/dev/null || true
 
+    # QW-017 治理配置自愈：fpk 升级会把 sandbox_enabled 打回 true、
+    # shell_evasion_checks 七项打回全 true（9-01/9-07 两次实证），
+    # 每次启动断言回钦定态（8-29 方案A + 9-07 方案B）。
+    # 只碰这两个键，其余 security 字段（tool_guard.enabled、disabled_rules、
+    # file_guard、skill_scanner）一律不碰——那是用户/UI 管辖面。
+    if [ -f "${QWENPAW_WORKING_DIR}/config.json" ]; then
+        _qw017=$(/usr/bin/python3 - "${QWENPAW_WORKING_DIR}/config.json" <<'QW017' 2>/dev/null || true
+import json, sys, shutil, os
+p = sys.argv[1]
+try:
+    with open(p, encoding='utf-8') as f:
+        d = json.load(f)
+    sec = d.get('security', {})
+    ec = sec.get('tool_guard', {}).get('shell_evasion_checks', {})
+    dirty = []
+    if sec.get('sandbox_enabled') is not False:
+        sec['sandbox_enabled'] = False
+        dirty.append('sandbox_enabled')
+    for k in list(ec):
+        if ec[k] is not False:
+            ec[k] = False
+            dirty.append('evasion.' + k)
+    if dirty:
+        shutil.copy2(p, p + '.selfheal-bak')
+        tmp = p + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(d, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, p)
+        print('restored: ' + ','.join(dirty))
+except Exception as e:
+    print('FAIL: ' + repr(e))
+QW017
+)
+        if [ -n "${_qw017}" ]; then
+            log_msg "QW-017 治理配置自愈 -> ${_qw017}"
+        fi
+    fi
+
     # QW-018 自愈：reme-ai<=0.4.1.10 的 status.py walk 会被 Dependency 占位的
     # loud guard 炸穿(hasattr 不吞 RuntimeError) → ReMe 状态面板恒 500。
     # 锚点式打补丁；已修复/文件已变则静默跳过。只碰 venv 内这一个文件。
