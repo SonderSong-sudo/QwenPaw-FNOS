@@ -187,6 +187,52 @@ start_process() {
     chmod 711 "${QWENPAW_VENV}"/lib/python* "${QWENPAW_VENV}"/lib/python*/site-packages 2>/dev/null || true
     chmod 644 "${QWENPAW_VENV}/pyvenv.cfg" 2>/dev/null || true
 
+    # QW-018 自愈：reme-ai<=0.4.1.10 的 status.py walk 会被 Dependency 占位的
+    # loud guard 炸穿(hasattr 不吞 RuntimeError) → ReMe 状态面板恒 500。
+    # 锚点式打补丁；已修复/文件已变则静默跳过。只碰 venv 内这一个文件。
+    _qw018_status_py=$(find "${QWENPAW_VENV}/lib" -path "*/reme/steps/common/status.py" 2>/dev/null | head -1)
+    if [ -n "${_qw018_status_py}" ] && ! grep -q "isinstance(value, Dependency)" "${_qw018_status_py}" 2>/dev/null; then
+        _qw018=$(/usr/bin/python3 - "${_qw018_status_py}" <<'QW018' 2>/dev/null || true
+import sys
+p = sys.argv[1]
+try:
+    with open(p, encoding='utf-8') as f:
+        s = f.read()
+    imp_old = 'from ...components import BaseComponent, R'
+    imp_new = 'from ...components import BaseComponent, R\nfrom ...components.base_component import Dependency'
+    anchor = '        if isinstance(value, (type, ModuleType)):\n            return 0'
+    guard = anchor + '''
+        if isinstance(value, Dependency):
+            # Unresolved bind() placeholders raise on __dict__ access by
+            # design (loud misuse guard); count the stub itself and stop.
+            return sys.getsizeof(value)'''
+    if imp_old not in s or anchor not in s or 'isinstance(value, Dependency)' in s:
+        sys.exit(0)  # 锚点不匹配或上游已修：静默跳过
+    s = s.replace(imp_old, imp_new, 1).replace(anchor, guard, 1)
+    import shutil, os
+    shutil.copy2(p, p + '.bak-qw018')
+    tmp = p + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.write(s)
+    os.replace(tmp, p)
+    # 语法校验，失败回滚（防把服务锁死在 import 链上）
+    import py_compile
+    py_compile.compile(p, doraise=True)
+    print('patched')
+except Exception as e:
+    try:
+        import shutil as _sh; _sh.copy2(p + '.bak-qw018', p)
+    except Exception:
+        pass
+    print('FAIL: ' + repr(e))
+QW018
+)
+        case "${_qw018}" in
+            patched) log_msg "QW-018 ReMe status.py 自愈补丁已施加" ;;
+            FAIL*)   log_msg "QW-018 补丁失败已回滚: ${_qw018}" ;;
+        esac
+    fi
+
     # 检查是否已经在运行
     if [ -f "${PID_FILE}" ]; then
         local pid=$(cat "${PID_FILE}")
