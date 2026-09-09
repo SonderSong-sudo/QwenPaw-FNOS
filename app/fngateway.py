@@ -1673,9 +1673,19 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
         try:
             conn.putrequest(self.command, upstream, skip_host=True, skip_accept_encoding=True)
             conn.putheader("Host", "127.0.0.1:%d" % internal_port)
+            qw_token = None   # QW-019：X-Qwenpaw-Token -> Authorization 翻译
+            qw_auth = None
             for k, v in self.headers.items():
                 kl = k.lower()
                 if kl in HOP_BY_HOP or kl == "host":
+                    continue
+                if kl == "x-qwenpaw-token":
+                    # QW-019：网关模式下 JS 把 qwenpaw Bearer 藏在此头（fnOS 网关见
+                    # Authorization 即拦 invalid token），转发上游时翻译回标准头
+                    qw_token = v
+                    continue
+                if kl == "authorization":
+                    qw_auth = v
                     continue
                 if kl == "origin":
                     conn.putheader("Origin", "http://127.0.0.1:%d" % internal_port)
@@ -1690,6 +1700,10 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 if kl == "content-length":
                     continue
                 conn.putheader(k, v)
+            if qw_token:
+                conn.putheader("Authorization", "Bearer %s" % qw_token)
+            elif qw_auth:
+                conn.putheader("Authorization", qw_auth)
             if body:
                 conn.putheader("Content-Length", str(len(body)))
             conn.endheaders(body if body else None)
@@ -1760,13 +1774,15 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 pass
 
     def _patch_qwenpaw_js(self, payload: bytes) -> bytes:
-        """给上游 JS 的 basename 推断函数打补丁，使其识别 fnOS 网关子路径。
+        """给上游 JS 打网关适配补丁（按顺序全部尝试，互不影响）：
 
-        上游 QwenPaw WebUI（react-router v7）用 n6(pathname) 推断 basename，正则只认
-        /console 一种前缀。挂在 fnOS 统一网关子路径（/app/<appid>/qwenpaw/）下时无法
-        识别，basename 退化为 "/"，导致路由 /、/sessions 等全部失配、主内容 <Outlet />
-        渲染为空（侧边栏正常）。这里让 n6() 优先返回网关注入的
-        window.__QWENPAW_BASENAME__（由桥接脚本注入），未注入时保持原逻辑。
+        1) basename 推断函数（n6/Po）：只认 /console 前缀，挂在 fnOS 网关子路径
+           （/app/<appid>/qwenpaw/）下无法识别 -> 路由全失配、主内容空白。
+           优先返回网关注入的 window.__QWENPAW_BASENAME__（桥接脚本注入）。
+        2) 鉴权头迁移（QW-019）：fnOS 网关拦截带 Authorization 的请求返回
+           "invalid token"（详见 QWENPAW_AUTH_ANCHOR 注释）。网关模式下把
+           Bearer 挪到 X-Qwenpaw-Token，由 proxy_qwenpaw 翻译回 Authorization。
+        3) agents 响应防御：响应体异常时不把 store agents 置 undefined 白屏。
         """
         global _QWENPAW_PATCH_WARNED
         try:
@@ -1774,34 +1790,61 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
         except Exception:
             return payload
 
-        # 1) 精确 anchor 快速路径（当前构建命中）
-        if QWENPAW_BASENAME_ANCHOR in js:
-            return js.replace(QWENPAW_BASENAME_ANCHOR, QWENPAW_BASENAME_PATCH, 1).encode("utf-8", "replace")
+        # ---- 1) basename 补丁 ----
+        # 快速锚点：v2.1.0 (n6) 与 v2.2.0 (Po) 两种已知形态，命中即秒替，避免大正则
+        _bn_hit = False
+        for _anchor, _args in (
+            (QWENPAW_BASENAME_ANCHOR, ("n6", "i", "i", "i", "c8e")),
+            ('function Po(e){return/^\\/console(?:\\/|$)/.test(e)?uv:void 0}', ("Po", "e", "e", "e", "uv")),
+        ):
+            if _anchor in js:
+                js = js.replace(_anchor, QWENPAW_BASENAME_PATCH_V2 % _args, 1)
+                _bn_hit = True
+                break
+        if not _bn_hit:
+            # 上游换构建导致 minified 标识符变化时，用泛化正则匹配（函数名/形参/
+            # 前缀字面量/常量名全通配），上游任意一版均可命中。
+            m = QWENPAW_BASENAME_RE.search(js)
+            if m:
+                fn, param, prefix, const = m.group(1), m.group(2), m.group(3), m.group(4)
+                patched = (
+                    'function %s(%s){var b=window.__QWENPAW_BASENAME__;'
+                    'if(b&&%s.indexOf(b)===0)return b;'
+                    'return/^%s(?:\\/|$)/.test(%s)?%s:void 0}'
+                    % (fn, param, param, prefix, param, const)
+                )
+                logger.info("QwenPaw basename 补丁：精确 anchor 未命中，改用泛化正则 (fn=%s, param=%s, prefix=%s, const=%s)", fn, param, prefix, const)
+                js = js[:m.start()] + patched + js[m.end():]
+            else:
+                # 都没命中：可能是上游改了实现。静默跳过会导致主内容空白且极难排查，故告警。
+                if not _QWENPAW_PATCH_WARNED:
+                    _QWENPAW_PATCH_WARNED = True
+                    logger.warning(
+                        "QwenPaw basename 补丁未命中（%d 字节 JS）：未找到 n6 形式的 basename 推断函数。"
+                        "上游可能已改动实现，WebUI 挂在网关子路径下可能出现主内容空白，请重新核对上游产物。",
+                        len(payload),
+                    )
 
-        # 2) 兜底：上游换构建导致 minified 标识符变化时，用泛化正则匹配（函数名/形参/
-        #    前缀字面量/常量名全通配，见 QWENPAW_BASENAME_RE 注释），上游任意一版均可命中。
-        m = QWENPAW_BASENAME_RE.search(js)
-        if m:
-            fn, param, prefix, const = m.group(1), m.group(2), m.group(3), m.group(4)
-            patched = (
-                'function %s(%s){var b=window.__QWENPAW_BASENAME__;'
-                'if(b&&%s.indexOf(b)===0)return b;'
-                'return/^%s(?:\\/|$)/.test(%s)?%s:void 0}'
-                % (fn, param, param, prefix, param, const)
-            )
-            logger.info("QwenPaw basename 补丁：精确 anchor 未命中，改用泛化正则 (fn=%s, param=%s, prefix=%s, const=%s)", fn, param, prefix, const)
-            # 必须 encode 回 bytes：调用方按字节流处理（Content-Length / wfile.write）
-            return (js[:m.start()] + patched + js[m.end():]).encode("utf-8", "replace")
+        # ---- 2) 鉴权头迁移补丁（QW-019）----
+        if QWENPAW_AUTH_ANCHOR in js:
+            js = js.replace(QWENPAW_AUTH_ANCHOR, QWENPAW_AUTH_PATCH, 1)
+        else:
+            m2 = QWENPAW_AUTH_RE.search(js)
+            if m2:
+                tok, hdr = m2.group(1), m2.group(2)
+                rep = (
+                    '%s&&(window.__QWENPAW_BASENAME__?'
+                    '(%s["X-Qwenpaw-Token"]=%s):'
+                    '(%s.Authorization=`Bearer ${%s}`))' % (tok, hdr, tok, hdr, tok)
+                )
+                logger.info("QwenPaw 鉴权头补丁：精确 anchor 未命中，改用泛化正则 (tok=%s, hdr=%s)", tok, hdr)
+                js = js[:m2.start()] + rep + js[m2.end():]
 
-        # 3) 都没命中：可能是上游改了实现。静默跳过会导致主内容空白且极难排查，故告警。
-        if not _QWENPAW_PATCH_WARNED:
-            _QWENPAW_PATCH_WARNED = True
-            logger.warning(
-                "QwenPaw basename 补丁未命中（%d 字节 JS）：未找到 n6 形式的 basename 推断函数。"
-                "上游可能已改动实现，WebUI 挂在网关子路径下可能出现主内容空白，请重新核对上游产物。",
-                len(payload),
-            )
-        return payload
+        # ---- 3) agents 响应防御补丁 ----
+        if QWENPAW_AGENTS_ANCHOR in js:
+            js = js.replace(QWENPAW_AGENTS_ANCHOR, QWENPAW_AGENTS_PATCH, 1)
+
+        return js.encode("utf-8", "replace")
 
     def _adapt_qwenpaw_html(self, payload: bytes) -> bytes:
         """改写 QwenPaw 前端 HTML：绝对资源路径 -> 相对路径 + 注入 <base href> + 网关桥接脚本"""
@@ -1905,6 +1948,13 @@ QWENPAW_BASENAME_PATCH = (
     r'if(b&&i.indexOf(b)===0)return b;'
     r'return/^\/console(?:\/|$)/.test(i)?c8e:void 0}'
 )
+# 参数化版本（v2.1.0 n6 / v2.2.0 Po 两种快速锚点共用）：
+# %s 顺序 = 函数名, 形参, 形参(indexOf用), 形参(test用), 前缀常量名
+QWENPAW_BASENAME_PATCH_V2 = (
+    'function %s(%s){var b=window.__QWENPAW_BASENAME__;'
+    'if(b&&%s.indexOf(b)===0)return b;'
+    'return/^\\/console(?:\\/|$)/.test(%s)?%s:void 0}'
+)
 # 兜底正则：上游重新构建后 minified 标识符会变，必须全部泛化，做到"上游任意一版都能命中"，
 # 不能他们每改一版构建我们就追一次锚点。实测产物形态（两个版本同构，仅标识符不同）：
 #   v2.1.0: function n6(i){return/^\/console(?:\/|$)/.test(i)?c8e:void 0}
@@ -1919,6 +1969,28 @@ QWENPAW_BASENAME_RE = re.compile(
 )
 # 同一进程内只告警一次，避免每个 JS 请求都刷日志
 _QWENPAW_PATCH_WARNED = False
+
+# fnOS 统一网关 Authorization 拦截（2026-09 系统更新后实证，QW-019）：
+# 携带 `Authorization: Bearer <未知token>` 的 /app/<appid>/ 请求会被 fnOS nginx
+# 拿该 token 当自己的会话校验，识别不了就返回 200 + "invalid token"（13B 纯文本）。
+# QwenPaw WebUI 登录后所有 API 请求都带自己的 Bearer -> 全军覆没：
+# /api/agents 拿到纯文本 -> store agents=undefined -> 白屏；
+# /api/frontend_plugin 拿到纯文本 -> 插件加载失败（Module not found: Chat）。
+# A/B 实证：同一 URL，无 Authorization 返回正常 JSON，带即 invalid token。
+# 修法：网关模式下 JS 把 Bearer 挪到自定义头 X-Qwenpaw-Token（fnOS 不认识、直接放行），
+# fngateway 反代上游时再翻译回 Authorization，内核鉴权完全不受影响。
+QWENPAW_AUTH_ANCHOR = 't&&(e.Authorization=`Bearer ${t}`)'
+QWENPAW_AUTH_PATCH = (
+    't&&(window.__QWENPAW_BASENAME__?'
+    '(e["X-Qwenpaw-Token"]=t):'
+    '(e.Authorization=`Bearer ${t}`))'
+)
+# 兜底正则：token 变量 / headers 变量全泛化（不要求同名，上游重构也能命中）
+QWENPAW_AUTH_RE = re.compile(r'(\w+)&&\((\w+)\.Authorization=`Bearer \$\{(\w+)\}`\)')
+# 防御性加固：/agents 响应体异常（网关层行为再变、返回非 JSON 等）时不把 store
+# agents 置 undefined 导致全 UI 白屏，改为空数组走正常"加载失败/空列表"路径。
+QWENPAW_AGENTS_ANCHOR = 'then(a=>{e({agents:a.agents})})'
+QWENPAW_AGENTS_PATCH = 'then(a=>{e({agents:Array.isArray(a.agents)?a.agents:[]})})'
 
 # 统一网关子路径反代时注入前端页面的桥接脚本（参考 DHS fnGatewayBridgeScript）：
 # 把 SPA 发出的同源绝对路径请求（/api/... 等）自动补全网关子路径前缀，
@@ -2553,9 +2625,18 @@ class ProxyRequestHandler(socketserver.BaseRequestHandler):
         try:
             conn.putrequest(method, path, skip_host=True, skip_accept_encoding=True)
             conn.putheader("Host", "127.0.0.1:%d" % internal_port)
+            qw_token = None   # QW-019：X-Qwenpaw-Token -> Authorization 翻译
+            qw_auth = None
             for k, v in headers.items():
                 kl = k.lower()
                 if kl in HOP_BY_HOP or kl == "host":
+                    continue
+                if kl == "x-qwenpaw-token":
+                    # QW-019：同 proxy_qwenpaw，网关模式下 Bearer 藏此头，上游翻译回标准头
+                    qw_token = v
+                    continue
+                if kl == "authorization":
+                    qw_auth = v
                     continue
                 if kl == "origin":
                     conn.putheader("Origin", "http://127.0.0.1:%d" % internal_port)
@@ -2566,6 +2647,10 @@ class ProxyRequestHandler(socketserver.BaseRequestHandler):
                 if kl == "content-length":
                     continue
                 conn.putheader(k, v)
+            if qw_token:
+                conn.putheader("Authorization", "Bearer %s" % qw_token)
+            elif qw_auth:
+                conn.putheader("Authorization", qw_auth)
             if body:
                 conn.putheader("Content-Length", str(len(body)))
             conn.endheaders(body if body else None)
