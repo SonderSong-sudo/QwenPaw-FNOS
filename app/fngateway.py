@@ -1501,6 +1501,20 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
             self.handle_logs_download(fname)
             return
 
+        if action == "qw_auth":
+            # 注意必须位于下方 method != "POST" 全局闸门之前：GET 也要能进来
+            if method == "POST":
+                body = self.read_body()
+                try:
+                    data = json.loads(body) if body else {}
+                except Exception:
+                    self.send_json({"success": False, "message": "请求体不是合法的 JSON"})
+                    return
+                self.send_json(server.save_qw_auth_config(data))
+            else:
+                self.send_json(server.qw_auth_config())
+            return
+
         if method != "POST":
             self.send_json({"success": False, "message": "仅支持 POST 请求"})
             return
@@ -1517,19 +1531,6 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
 
         if action == "reset_auth":
             self.send_json(server.reset_auth())
-            return
-
-        if action == "qw_auth":
-            if method == "POST":
-                body = self.read_body()
-                try:
-                    data = json.loads(body) if body else {}
-                except Exception:
-                    self.send_json({"success": False, "message": "请求体不是合法的 JSON"})
-                    return
-                self.send_json(server.save_qw_auth_config(data))
-            else:
-                self.send_json(server.qw_auth_config())
             return
 
         if action == "action":
