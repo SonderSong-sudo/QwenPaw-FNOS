@@ -3295,6 +3295,9 @@
         if (d && d.success) {
           document.getElementById('qwAuthSwitch').className = 'switch' + (d.qw_auth_required ? ' on' : '');
           document.getElementById('qwAuthState').textContent = d.auth_enabled ? '已启用' : '未启用';
+        } else {
+          /* 旧进程无此 API 时返回 200+success:false，明确提示而非干等 */
+          document.getElementById('qwAuthState').textContent = '获取失败（网关服务为旧版，请重启 QwenPaw 应用后重试）';
         }
       }).catch(function () {
         document.getElementById('qwAuthState').textContent = '获取失败（服务未响应）';
