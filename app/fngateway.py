@@ -1762,6 +1762,14 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                     payload = self._adapt_qwenpaw_html(payload)
                 elif is_js:
                     payload = self._patch_qwenpaw_js(payload)
+                elif upstream == "/api/auth/status" and "json" in ct.lower():
+                    # QW-020：网关信任模式——fnOS 统一网关已做登录校验（未登录
+                    # 请求根本到不了这里），故把内核 auth/status 的 enabled 改写
+                    # 为 false，前端即跳过 QwenPaw 登录页直接进入主界面。
+                    # 安全性：仅网关路径生效；内核 API 对回环来源本就白名单豁免
+                    # （security.allow_no_auth_hosts 默认含 127.0.0.1，且直连
+                    # 对端必须回环），局域网直连内核端口仍强制 Bearer 鉴权。
+                    payload = self._patch_auth_status(payload)
                 out.append("Content-Length: %d" % len(payload))
                 out.append("Connection: close")
                 self._write_head_raw(out)
@@ -1772,6 +1780,22 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 conn.close()
             except Exception:
                 pass
+
+    @staticmethod
+    def _patch_auth_status(payload: bytes) -> bytes:
+        """QW-020 网关信任模式：把内核 /api/auth/status 的 enabled 改写为 false。
+
+        前端启动时调 /api/auth/status，enabled=true 且无本地 token 即弹登录页。
+        走 fnOS 网关路径的请求已通过飞牛登录校验，这里把 enabled 改写为 false
+        让前端跳过登录直接进入。仅本方法所在的网关模式代理生效；内核对回环
+        来源的 API 本就白名单豁免，非回环直连仍强制鉴权，权限面不变。
+        """
+        global _QWENPAW_AUTHSTATUS_LOGGED
+        patched, n = re.subn(rb'"enabled"\s*:\s*true', b'"enabled":false', payload, count=1)
+        if n and not _QWENPAW_AUTHSTATUS_LOGGED:
+            _QWENPAW_AUTHSTATUS_LOGGED = True
+            logger.info("QwenPaw 网关信任模式：/api/auth/status enabled=true -> false（fnOS 已登录，免 QwenPaw 登录）")
+        return patched if n else payload
 
     def _patch_qwenpaw_js(self, payload: bytes) -> bytes:
         """给上游 JS 打网关适配补丁（按顺序全部尝试，互不影响）：
@@ -1969,6 +1993,9 @@ QWENPAW_BASENAME_RE = re.compile(
 )
 # 同一进程内只告警一次，避免每个 JS 请求都刷日志
 _QWENPAW_PATCH_WARNED = False
+
+# QW-020：auth/status 改写只告警/记录一次，避免前端高频轮询刷日志
+_QWENPAW_AUTHSTATUS_LOGGED = False
 
 # fnOS 统一网关 Authorization 拦截（2026-09 系统更新后实证，QW-019）：
 # 携带 `Authorization: Bearer <未知token>` 的 /app/<appid>/ 请求会被 fnOS nginx
