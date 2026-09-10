@@ -2349,31 +2349,49 @@
       setTimeout(function () { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, 2600);
       setTimeout(function () { el.remove(); }, 3000);
     }
-    /* 顶部横幅提示（默认 20s 自动消失）；重复调用同一内容只重置计时不闪烁 */
-    var topToastTimer = null, topToastLast = '';
+    /* 顶部横幅提示（默认 30s 自动消失）：堆叠式——重复弹出时新横幅置顶、
+       旧横幅向下顺移（flex 列布局），不再原地覆盖；栈顶同内容只重置计时不堆叠
+       （升级进度类消息会高频重发同一内容），栈深上限 4 条防刷屏 */
+    var topToastStack = null;
     function topToast(msg, type, ttl) {
-      var el = document.getElementById('topToast');
-      if (!el) {
-        el = document.createElement('div');
-        el.id = 'topToast';
-        el.className = 'toast top-toast';
-        /* 仅保留位置/动画/宽度/居中相关 inline；背景/边框/字体由 .toast.success 等接管 */
-        el.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9999;' +
-          'padding:10px 18px;border-radius:10px;font-size:13px;line-height:1.5;' +
-          'box-shadow:0 6px 24px rgba(0,0,0,.25);transition:opacity .3s;max-width:82%;text-align:center;display:none;';
-        document.body.appendChild(el);
+      if (!topToastStack) {
+        topToastStack = document.createElement('div');
+        topToastStack.id = 'topToastStack';
+        topToastStack.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);' +
+          'z-index:9999;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;max-width:90%;';
+        document.body.appendChild(topToastStack);
       }
-      /* 切换类型 class（success/error/warning）让 .toast.success 等接管样式 */
-      el.classList.remove('success', 'error', 'warning');
-      if (type) el.classList.add(type);
-      if (topToastLast !== msg) { el.textContent = msg; topToastLast = msg; }
-      el.style.display = 'block';
+      /* 去重：栈顶同内容只重置计时，不重复堆叠 */
+      var top = topToastStack.firstElementChild;
+      if (top && top.getAttribute('data-msg') === msg) {
+        clearTimeout(top._timer);
+        topToastTtl(top, ttl);
+        return;
+      }
+      var el = document.createElement('div');
+      el.className = 'toast ' + (type || '');
+      el.setAttribute('data-msg', msg);
+      el.textContent = msg;
+      /* 仅保留布局无关的 inline；背景/边框/字体/入场动画由 .toast.success 等接管 */
+      el.style.cssText = 'padding:10px 18px;border-radius:10px;font-size:13px;line-height:1.5;' +
+        'box-shadow:0 6px 24px rgba(0,0,0,.25);transition:opacity .3s;max-width:100%;text-align:center;pointer-events:auto;';
+      topToastStack.insertBefore(el, topToastStack.firstChild); /* 新的置顶，旧的自动下移 */
+      /* 栈深上限：超过 4 条移除最旧的（列表末尾） */
+      while (topToastStack.children.length > 4) {
+        var oldest = topToastStack.lastElementChild;
+        clearTimeout(oldest._timer);
+        oldest.remove();
+      }
+      topToastTtl(el, ttl);
+    }
+    function topToastTtl(el, ttl) {
+      el.style.display = 'flex';
       el.style.opacity = '1';
-      clearTimeout(topToastTimer);
-      topToastTimer = setTimeout(function () {
+      clearTimeout(el._timer);
+      el._timer = setTimeout(function () {
         el.style.opacity = '0';
-        setTimeout(function () { el.style.display = 'none'; topToastLast = ''; }, 300);
-      }, ttl || 20000);
+        setTimeout(function () { el.remove(); }, 300);
+      }, ttl || 30000);
     }
     function fmtRuntime(startAt) {
       if (!state.running || typeof startAt !== 'number' || !isFinite(startAt) || startAt <= 0) return '-';
