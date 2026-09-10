@@ -1610,6 +1610,12 @@
           </svg>
           备份与恢复
         </button>
+        <button class="nav-item" data-view="auth">
+          <svg class="icon-sm">
+            <use href="#i-key" />
+          </svg>
+          登录认证
+        </button>
       </nav>
       <div class="sidebar-foot-nav">
         <div class="sidebar-divider"></div>
@@ -1886,6 +1892,55 @@
                     <svg class="icon-sm">
                       <use href="#i-key" />
                     </svg>重置认证
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== 登录认证视图 ===== -->
+        <section id="view-auth" class="view">
+          <div class="page-head">
+            <div>
+              <h1 class="page-title">登录认证</h1>
+              <p class="page-sub">WebUI 免密登录开关 · 重置账号密码</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <svg class="icon-sm" style="color:var(--ui-primary)">
+                <use href="#i-key" />
+              </svg>
+              登录认证
+            </div>
+            <div class="card-body">
+              <div style="display:flex;flex-direction:column;gap:16px">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+                  <div style="min-width:0">
+                    <div style="font-size:14px;font-weight:600">网关免密登录</div>
+                    <div class="form-hint" style="margin-top:2px">开启后，经飞牛统一网关访问 QwenPaw WebUI 时不再要求输入 QwenPaw 账号密码（飞牛后台已验证登录态即可进入）。关闭后恢复账号密码验证。局域网直连与外部反代端口的鉴权不受本开关影响。</div>
+                  </div>
+                  <button id="qwTrustSwitch" class="switch" onclick="toggleQwTrust()" aria-label="网关免密登录"></button>
+                </div>
+                <div style="height:1px;background:var(--ui-border)"></div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+                  <div style="min-width:0">
+                    <div style="font-size:14px;font-weight:600">内核登录认证</div>
+                    <div class="form-hint" style="margin-top:2px">QwenPaw 内核账号密码认证状态：<span id="qwAuthState">获取中...</span>（关闭免密开关后，进入 WebUI 需输入账号密码）</div>
+                  </div>
+                </div>
+                <div style="height:1px;background:var(--ui-border)"></div>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+                  <div style="min-width:0">
+                    <div style="font-size:14px;font-weight:600">重置账号密码</div>
+                    <div class="form-hint" style="margin-top:2px">删除登录认证文件并重启服务，下次进入 QwenPaw 将重新设置账号密码（忘记密码时使用）</div>
+                  </div>
+                  <button class="btn btn-error-soft" id="btnResetAuth2" onclick="confirmResetAuth('btnResetAuth2')">
+                    <svg class="icon-sm">
+                      <use href="#i-key" />
+                    </svg>重置账号密码
                   </button>
                 </div>
               </div>
@@ -3212,11 +3267,11 @@
         btn.innerHTML = oldHtml;
       });
     }
-    function confirmResetAuth() {
-      showConfirm('重置 QwenPaw 认证', '将删除登录认证文件并重启服务，下次进入 QwenPaw 需重新设置账号密码。确定继续吗？', resetAuthNow);
+    function confirmResetAuth(btnId) {
+      showConfirm('重置 QwenPaw 认证', '将删除登录认证文件并重启服务，下次进入 QwenPaw 需重新设置账号密码。确定继续吗？', function () { resetAuthNow(btnId || 'btnResetAuth'); });
     }
-    function resetAuthNow() {
-      var btn = document.getElementById('btnResetAuth');
+    function resetAuthNow(btnId) {
+      var btn = document.getElementById(btnId || 'btnResetAuth');
       var oldHtml = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = '重置中...';
@@ -3234,6 +3289,34 @@
         btn.innerHTML = oldHtml;
       });
     }
+    /* ================= 登录认证（QW-020 网关免密开关） ================= */
+    function loadQwAuth() {
+      apiGet('api/qw_auth').then(function (d) {
+        if (d && d.success) {
+          document.getElementById('qwTrustSwitch').className = 'switch' + (d.trust_gateway_auth ? ' on' : '');
+          document.getElementById('qwAuthState').textContent = d.auth_enabled ? '已启用' : '未启用';
+        }
+      }).catch(function () {
+        document.getElementById('qwAuthState').textContent = '获取失败（服务未响应）';
+      });
+    }
+    function toggleQwTrust() {
+      var sw = document.getElementById('qwTrustSwitch');
+      var next = sw.className.indexOf('on') === -1;
+      sw.disabled = true;
+      apiPost('api/qw_auth', { trust_gateway_auth: next }).then(function (d) {
+        if (d && d.success) {
+          sw.className = 'switch' + (d.trust_gateway_auth ? ' on' : '');
+          toast(d.message || '设置已保存', 'success');
+        } else {
+          toast('保存失败：' + ((d && d.message) || '未知错误'), 'error');
+        }
+      }).catch(function () {
+        toast('保存失败：请求超时或服务未响应', 'error');
+      }).finally(function () {
+        sw.disabled = false;
+      });
+    }
     /* ================= 视图切换 ================= */
     function switchView(v) {
       if (!v) return; /* 防御：无 data-view 的按钮（如皮肤切换）不切换视图 */
@@ -3241,6 +3324,7 @@
       document.getElementById('view-overview').className = 'view' + (v === 'overview' ? ' active' : '');
       document.getElementById('view-logs').className = 'view' + (v === 'logs' ? ' active' : '');
       document.getElementById('view-backup').className = 'view' + (v === 'backup' ? ' active' : '');
+      document.getElementById('view-auth').className = 'view' + (v === 'auth' ? ' active' : '');
       document.getElementById('view-gateway').className = 'view' + (v === 'gateway' ? ' active' : '');
       document.getElementById('view-settings').className = 'view' + (v === 'settings' ? ' active' : '');
       var navs = document.querySelectorAll('.nav-item, .tabbar-item');
@@ -3254,6 +3338,9 @@
       }
       if (v === 'gateway') {
         loadGatewayConfig(false);
+      }
+      if (v === 'auth') {
+        loadQwAuth();
       }
       if (v === 'settings') {
         loadSettings();

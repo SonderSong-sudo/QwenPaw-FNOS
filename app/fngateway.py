@@ -296,6 +296,45 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
     # ---------------- 飞牛统一网关（反代端口 + 密码鉴权） ----------------
 
+    def qw_trust_enabled(self) -> bool:
+        """QW-020 网关免密登录开关（默认开启）。
+
+        读取 gateway_cfg 的 trust_gateway_auth；配置对象缺失或异常时
+        保持默认开启（与 26.8.63 引入网关信任模式时的行为一致）。
+        """
+        gw = getattr(self, "gateway_cfg", None)
+        if gw is None:
+            return True
+        try:
+            return bool(gw.get("trust_gateway_auth", True))
+        except Exception:
+            return True
+
+    def qw_auth_config(self) -> dict:
+        """GET /api/qw_auth：QwenPaw 登录认证控制状态（QW-020 网关信任模式）"""
+        return {
+            "success": True,
+            "trust_gateway_auth": self.qw_trust_enabled(),
+            "auth_enabled": self.auth_enabled(),
+        }
+
+    def save_qw_auth_config(self, data: dict) -> dict:
+        """POST /api/qw_auth：设置网关免密登录开关（trust_gateway_auth）。
+
+        True（默认）= 经飞牛统一网关访问 WebUI 免输 QwenPaw 账号密码；
+        False = 恢复账号密码验证。仅影响网关路径的 auth/status 改写，
+        内核鉴权、局域网直连、反代端口访问密码均不受影响。
+        """
+        trust = bool(data.get("trust_gateway_auth", True))
+        self.gateway_cfg.set("trust_gateway_auth", trust)
+        self.gateway_cfg.save()
+        logger.info("QwenPaw 网关免密登录开关 -> %s", "开启（免密）" if trust else "关闭（需账号密码）")
+        return {
+            "success": True,
+            "message": "网关免密登录已%s" % ("开启" if trust else "关闭"),
+            "trust_gateway_auth": trust,
+        }
+
     def gateway_config(self) -> dict:
         """GET /api/gateway：返回网关配置（密码不回传明文，仅返回是否已设置）"""
         gw = self.gateway_cfg
@@ -1477,6 +1516,19 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
             self.send_json(server.reset_auth())
             return
 
+        if action == "qw_auth":
+            if method == "POST":
+                body = self.read_body()
+                try:
+                    data = json.loads(body) if body else {}
+                except Exception:
+                    self.send_json({"success": False, "message": "请求体不是合法的 JSON"})
+                    return
+                self.send_json(server.save_qw_auth_config(data))
+            else:
+                self.send_json(server.qw_auth_config())
+            return
+
         if action == "action":
             body = self.read_body()
             try:
@@ -1762,10 +1814,11 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                     payload = self._adapt_qwenpaw_html(payload)
                 elif is_js:
                     payload = self._patch_qwenpaw_js(payload)
-                elif upstream == "/api/auth/status" and "json" in ct.lower():
+                elif upstream == "/api/auth/status" and "json" in ct.lower() and self.server.qw_trust_enabled():
                     # QW-020：网关信任模式——fnOS 统一网关已做登录校验（未登录
                     # 请求根本到不了这里），故把内核 auth/status 的 enabled 改写
                     # 为 false，前端即跳过 QwenPaw 登录页直接进入主界面。
+                    # 可在控制台「登录认证」模块关闭（trust_gateway_auth=false）。
                     # 安全性：仅网关路径生效；内核 API 对回环来源本就白名单豁免
                     # （security.allow_no_auth_hosts 默认含 127.0.0.1，且直连
                     # 对端必须回环），局域网直连内核端口仍强制 Bearer 鉴权。
