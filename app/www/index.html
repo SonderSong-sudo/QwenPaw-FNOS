@@ -1927,13 +1927,6 @@
                 <div style="height:1px;background:var(--ui-border)"></div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
                   <div style="min-width:0">
-                    <div style="font-size:14px;font-weight:600">内核登录认证</div>
-                    <div class="form-hint" style="margin-top:2px">QwenPaw 内核账号密码认证状态：<span id="qwAuthState">获取中...</span>（开关关闭时经网关访问免密；局域网直连内核端口始终需要认证）</div>
-                  </div>
-                </div>
-                <div style="height:1px;background:var(--ui-border)"></div>
-                <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
-                  <div style="min-width:0">
                     <div style="font-size:14px;font-weight:600">重置账号密码</div>
                     <div class="form-hint" style="margin-top:2px">删除登录认证文件并重启服务，下次进入 QwenPaw 将重新设置账号密码（忘记密码时使用）</div>
                   </div>
@@ -3294,13 +3287,12 @@
       apiGet('api/qw_auth').then(function (d) {
         if (d && d.success) {
           document.getElementById('qwAuthSwitch').className = 'switch' + (d.qw_auth_required ? ' on' : '');
-          document.getElementById('qwAuthState').textContent = d.auth_enabled ? '已启用' : '未启用';
         } else {
-          /* 旧进程无此 API 时返回 200+success:false，明确提示而非干等 */
-          document.getElementById('qwAuthState').textContent = '获取失败（网关服务为旧版，请重启 QwenPaw 应用后重试）';
+          /* 旧进程无此 API 时返回 200+success:false，明确提示而非静默 */
+          toast('登录认证状态获取失败：网关服务为旧版，请重启 QwenPaw 应用', 'error');
         }
       }).catch(function () {
-        document.getElementById('qwAuthState').textContent = '获取失败（服务未响应）';
+        toast('登录认证状态获取失败：服务未响应', 'error');
       });
     }
     function toggleQwAuth() {
