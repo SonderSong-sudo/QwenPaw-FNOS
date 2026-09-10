@@ -1904,7 +1904,7 @@
           <div class="page-head">
             <div>
               <h1 class="page-title">登录认证</h1>
-              <p class="page-sub">WebUI 免密登录开关 · 重置账号密码</p>
+              <p class="page-sub">账号密码认证开关 · 重置账号密码</p>
             </div>
           </div>
 
@@ -1919,16 +1919,16 @@
               <div style="display:flex;flex-direction:column;gap:16px">
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
                   <div style="min-width:0">
-                    <div style="font-size:14px;font-weight:600">网关免密登录</div>
-                    <div class="form-hint" style="margin-top:2px">开启后，经飞牛统一网关访问 QwenPaw WebUI 时不再要求输入 QwenPaw 账号密码（飞牛后台已验证登录态即可进入）。关闭后恢复账号密码验证。局域网直连与外部反代端口的鉴权不受本开关影响。</div>
+                    <div style="font-size:14px;font-weight:600">启用账号密码认证</div>
+                    <div class="form-hint" style="margin-top:2px">开启后，经飞牛统一网关访问 QwenPaw WebUI 也需输入 QwenPaw 账号密码；关闭（默认）则飞牛后台已登录即可直接进入。局域网直连与外部反代端口的鉴权不受本开关影响。</div>
                   </div>
-                  <button id="qwTrustSwitch" class="switch" onclick="toggleQwTrust()" aria-label="网关免密登录"></button>
+                  <button id="qwAuthSwitch" class="switch" onclick="toggleQwAuth()" aria-label="启用账号密码认证"></button>
                 </div>
                 <div style="height:1px;background:var(--ui-border)"></div>
                 <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
                   <div style="min-width:0">
                     <div style="font-size:14px;font-weight:600">内核登录认证</div>
-                    <div class="form-hint" style="margin-top:2px">QwenPaw 内核账号密码认证状态：<span id="qwAuthState">获取中...</span>（关闭免密开关后，进入 WebUI 需输入账号密码）</div>
+                    <div class="form-hint" style="margin-top:2px">QwenPaw 内核账号密码认证状态：<span id="qwAuthState">获取中...</span>（开关关闭时经网关访问免密；局域网直连内核端口始终需要认证）</div>
                   </div>
                 </div>
                 <div style="height:1px;background:var(--ui-border)"></div>
@@ -3289,24 +3289,24 @@
         btn.innerHTML = oldHtml;
       });
     }
-    /* ================= 登录认证（QW-020 网关免密开关） ================= */
+    /* ================= 登录认证（QW-020 账号认证开关） ================= */
     function loadQwAuth() {
       apiGet('api/qw_auth').then(function (d) {
         if (d && d.success) {
-          document.getElementById('qwTrustSwitch').className = 'switch' + (d.trust_gateway_auth ? ' on' : '');
+          document.getElementById('qwAuthSwitch').className = 'switch' + (d.qw_auth_required ? ' on' : '');
           document.getElementById('qwAuthState').textContent = d.auth_enabled ? '已启用' : '未启用';
         }
       }).catch(function () {
         document.getElementById('qwAuthState').textContent = '获取失败（服务未响应）';
       });
     }
-    function toggleQwTrust() {
-      var sw = document.getElementById('qwTrustSwitch');
+    function toggleQwAuth() {
+      var sw = document.getElementById('qwAuthSwitch');
       var next = sw.className.indexOf('on') === -1;
       sw.disabled = true;
-      apiPost('api/qw_auth', { trust_gateway_auth: next }).then(function (d) {
+      apiPost('api/qw_auth', { qw_auth_required: next }).then(function (d) {
         if (d && d.success) {
-          sw.className = 'switch' + (d.trust_gateway_auth ? ' on' : '');
+          sw.className = 'switch' + (d.qw_auth_required ? ' on' : '');
           toast(d.message || '设置已保存', 'success');
         } else {
           toast('保存失败：' + ((d && d.message) || '未知错误'), 'error');
