@@ -1081,10 +1081,30 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         s += ('new_ver=$("%s" -c "import importlib.metadata as m; '
               "print(m.version('qwenpaw'))\" 2>/dev/null)\n" % venv_python)
         if old_ver:
+            # 残留 dist-info 防御：旧 editable 安装（pip install -e server）的元数据
+            # RECORD 指向 venv 外，pip 升级时只报 "Can't uninstall" 跳过，旧版本
+            # dist-info 与新版本并存——importlib.metadata 可能读到旧版本，把成功的
+            # 升级误判为「版本未变化」（26.8.71 实测：实际装了 2.2.1 却读出 2.2.0）。
+            # 处理：版本未变化时清理多版本 dist-info（保留最高版本）后复检一次。
+            s += 'if [ "$new_ver" = "' + old_ver + '" ]; then\n'
+            s += ('  sp=$("%s" -c "import sysconfig; '
+                  "print(sysconfig.get_paths()['purelib'])\" 2>/dev/null)\n" % venv_python)
+            s += '  keep=$(ls -d "$sp"/qwenpaw-*.dist-info 2>/dev/null | sort -V | tail -n 1)\n'
+            s += '  for d in "$sp"/qwenpaw-*.dist-info; do\n'
+            s += '    [ -e "$d" ] || continue\n'
+            s += '    if [ "$d" != "$keep" ]; then\n'
+            s += ('      echo "  清理残留 dist-info：$(basename "$d")'
+                  '（旧 editable 元数据，pip 无法卸载且干扰版本读取）" >> "' + up_log + '"\n')
+            s += '      rm -rf "$d"\n'
+            s += '    fi\n'
+            s += '  done\n'
+            s += ('  new_ver=$("%s" -c "import importlib.metadata as m; '
+                  "print(m.version('qwenpaw'))\" 2>/dev/null)\n" % venv_python)
+            s += 'fi\n'
             s += 'if [ "$new_ver" = "' + old_ver + '" ]; then\n'
             s += ('  echo "=== pip 退出码为 0 但内核版本未变化（仍为 v' + old_ver +
                   '）：所选 PyPI 镜像尚未同步新版本，服务未重启 ===" >> "' + up_log + '"\n')
-            s += '  echo "  可稍后重试，或在安装向导中把 PyPI 镜像改为官方源" >> "' + up_log + '"\n'
+            s += '  echo "  可稍后重试，或在应用设置的「PyPI 安装源」中改为官方源" >> "' + up_log + '"\n'
             s += '  echo 4 > "' + up_result + '"\n'
             s += '  rm -f "' + up_pid + '"\n'
             s += '  exit 0\n'
