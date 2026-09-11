@@ -449,7 +449,9 @@ install_callback() {
             "${pip}" config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ >/dev/null 2>&1
             ;;
     esac
-    "${pip}" config set global.extra-index-url https://mirrors.aliyun.com/pypi/simple/ >/dev/null 2>&1
+    # 注意：不要设置 extra-index-url——pip 会把副源纳入版本解析（取所有源的最高
+    # 版本），镜像副源滞后时会让「官方源」选择形同虚设（26.8.70 实测案例）
+    echo "依赖安装源：${mirror}" >> "${LOG_FILE}"
 
     # 安装项目并同步依赖
     log_msg "正在安装项目并同步依赖..."

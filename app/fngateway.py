@@ -952,10 +952,11 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             "ustc": "https://pypi.mirrors.ustc.edu.cn/simple/",
         }
         mirror = self._read_pypi_mirror()
-        # official 必须显式短路：不识别值会走 get 默认回落清华源，
-        # 导致「官方源」选项实际仍走镜像（26.8.68 实测：official 下仍 -i 镜像）
+        # official 必须显式 -i 官方：不能省略 -i——依赖安装阶段 pip config set 写入的
+        # global.index-url（服务用户 pip.conf）会在无 -i 时成为主源，导致「官方源」
+        # 实际仍走镜像（26.8.70 实测：无 -i 时 Looking in indexes 仍是清华+阿里）
         if mirror == "official":
-            return ""
+            return "-i https://pypi.org/simple"
         url = mirrors.get(mirror, mirrors["tsinghua"])
         return ("-i %s" % url) if url else ""
 
