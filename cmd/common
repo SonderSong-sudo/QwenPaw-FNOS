@@ -19,9 +19,17 @@ QWENPAW_PORT="${qwenpaw_webui_port}"
 export HOME="${TRIM_PKGVAR}/data"
 export PYTHONPATH="${QWENPAW_SRC}:${PYTHONPATH}"
 export PIP_CACHE_DIR="${TRIM_PKGVAR}/.pip_cache"
-export QWENPAW_AUTH_ENABLED=true
-export QWENPAW_AUTH_USERNAME="${qwenpaw_auth_username}"
-export QWENPAW_AUTH_PASSWORD="${qwenpaw_auth_password}"
+# 登录认证（安装向导可选账号；账号密码留空则不启用内核认证）：
+# 用户名+密码齐备才启用内核认证；留空则禁用——经飞牛网关访问本就免密
+# （fngateway 改写 auth/status），局域网直连内核端口也随之无鉴权，
+# 安装向导 tips 已提示勿将端口暴露给不可信网络
+if [ -n "${qwenpaw_auth_username}" ] && [ -n "${qwenpaw_auth_password}" ]; then
+    export QWENPAW_AUTH_ENABLED=true
+    export QWENPAW_AUTH_USERNAME="${qwenpaw_auth_username}"
+    export QWENPAW_AUTH_PASSWORD="${qwenpaw_auth_password}"
+else
+    export QWENPAW_AUTH_ENABLED=false
+fi
 
 # 工作目录显式化（对齐商店版 com.dustinky.qwenpaw 的做法）：
 # 内核（-m qwenpaw app）默认用 $HOME/.qwenpaw，fngateway 回退到 data_dir/.qwenpaw，

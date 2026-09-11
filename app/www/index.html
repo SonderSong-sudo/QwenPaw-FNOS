@@ -2378,12 +2378,16 @@
           'z-index:9999;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;max-width:90%;';
         document.body.appendChild(topToastStack);
       }
-      /* 去重：栈顶同内容只重置计时，不重复堆叠 */
-      var top = topToastStack.firstElementChild;
-      if (top && top.getAttribute('data-msg') === msg) {
-        clearTimeout(top._timer);
-        topToastTtl(top, ttl);
-        return;
+      /* 去重：全栈查找同内容——命中则移到栈顶并重置计时，不插入重复条目
+         （此前只查栈顶：非栈顶的旧消息重发会再插一条，同屏出现两条相同横幅） */
+      for (var i = 0; i < topToastStack.children.length; i++) {
+        if (topToastStack.children[i].getAttribute('data-msg') === msg) {
+          var hit = topToastStack.children[i];
+          clearTimeout(hit._timer);
+          topToastStack.insertBefore(hit, topToastStack.firstChild);
+          topToastTtl(hit, ttl);
+          return;
+        }
       }
       var el = document.createElement('div');
       el.className = 'toast ' + (type || '');
