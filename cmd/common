@@ -19,17 +19,13 @@ QWENPAW_PORT="${qwenpaw_webui_port}"
 export HOME="${TRIM_PKGVAR}/data"
 export PYTHONPATH="${QWENPAW_SRC}:${PYTHONPATH}"
 export PIP_CACHE_DIR="${TRIM_PKGVAR}/.pip_cache"
-# 登录认证（安装向导可选账号；账号密码留空则不启用内核认证）：
-# 用户名+密码齐备才启用内核认证；留空则禁用——经飞牛网关访问本就免密
-# （fngateway 改写 auth/status），局域网直连内核端口也随之无鉴权，
-# 安装向导 tips 已提示勿将端口暴露给不可信网络
-if [ -n "${qwenpaw_auth_username}" ] && [ -n "${qwenpaw_auth_password}" ]; then
-    export QWENPAW_AUTH_ENABLED=true
-    export QWENPAW_AUTH_USERNAME="${qwenpaw_auth_username}"
-    export QWENPAW_AUTH_PASSWORD="${qwenpaw_auth_password}"
-else
-    export QWENPAW_AUTH_ENABLED=false
-fi
+# 登录认证：不再向内核导出 QWENPAW_AUTH_ENABLED / QWENPAW_AUTH_USERNAME /
+# QWENPAW_AUTH_PASSWORD——内核 is_auth_enabled() 只认环境变量，不导出即认证
+# 整体关闭（auth/status 天然 enabled:false），经飞牛网关与局域网/桌面客户端
+# 直连均免密；向导也已移除账号密码创建窗口。历史安装向导配置里残留的账号
+# 值由此被显式忽略（否则老配置会把认证又打开，桌面客户端直连会被拦登录）。
+# 如确需内核级认证：手动恢复上行三个环境变量导出（值可自定），重启服务即可。
+unset QWENPAW_AUTH_ENABLED QWENPAW_AUTH_USERNAME QWENPAW_AUTH_PASSWORD 2>/dev/null || true
 
 # 工作目录显式化（对齐商店版 com.dustinky.qwenpaw 的做法）：
 # 内核（-m qwenpaw app）默认用 $HOME/.qwenpaw，fngateway 回退到 data_dir/.qwenpaw，
