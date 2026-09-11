@@ -528,6 +528,24 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         """读取日志文件末尾 N 行（默认当前运行日志），剥除 ANSI 颜色码"""
         return self._tail_lines(path or self._resolve_live_log("log_file"), lines)
 
+    def _log_banner(self, text: str, anchor: bool = False) -> None:
+        """向运行日志写入操作横幅（═ 分隔条），把零散内核日志按控制台操作分段。
+
+        默认写 live 文件（与日志页读取路径一致）；anchor=True 时写锚点路径——
+        启动类横幅先于新内核 stdout 落在当天文件，横幅后紧跟内核启动日志。
+        失败静默：横幅是锦上添花，绝不影响操作本身。
+        """
+        path = self.cfg.get("log_file", "") if anchor else self._resolve_live_log("log_file")
+        if not path:
+            return
+        try:
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            bar = "═" * 24
+            with open(path, "a", encoding="utf-8", errors="ignore") as f:
+                f.write("%s %s · %s %s\n" % (bar, text, stamp, bar))
+        except Exception:
+            pass
+
     def _resolve_live_log(self, key: str) -> str:
         """解析「实际仍在被写入」的运行日志文件路径。
 
@@ -689,7 +707,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             cmd = proxy_env + " && " + cmd
         return cmd
 
-    def start_service(self) -> dict:
+    def start_service(self, banner: bool = True) -> dict:
         if self.process_alive(self.read_pid()):
             return {"success": True, "message": "QwenPaw 已在运行"}
 
@@ -701,6 +719,10 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         log_file = self.cfg.get("log_file", "")
         pid_file = self.cfg.get("pid_file", "")
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+        # 横幅写锚点（新内核 stdout 将重定向到锚点），横幅后紧跟内核启动日志
+        if banner:
+            self._log_banner("服务启动", anchor=True)
 
         cmd = self.build_service_command()
         try:
@@ -735,11 +757,14 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         except OSError:
             return False
 
-    def stop_service(self) -> dict:
+    def stop_service(self, banner: bool = True) -> dict:
         pid = self.read_pid()
         pid_file = self.cfg.get("pid_file", "")
 
         if self.process_alive(pid):
+            if banner:
+                # 横幅写 live 文件（被停内核 fd 实际所写），紧跟其最后的日志
+                self._log_banner("服务停止")
             # 按进程组杀：启动命令经 bash 链式构造，单杀可能留下子进程
             self._kill_process_tree(pid, signal.SIGTERM)
 
@@ -772,8 +797,10 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         return {"success": True, "message": "QwenPaw 已停止"}
 
     def restart_service(self) -> dict:
-        self.stop_service()
-        return self.start_service()
+        # 一次操作一条横幅（停止+启动由本方法内部消化，不重复打点）
+        self._log_banner("服务重启", anchor=True)
+        self.stop_service(banner=False)
+        return self.start_service(banner=False)
 
     def clear_logs(self) -> dict:
         """清空当前运行日志与网关日志；历史按天文件不受影响
@@ -1035,6 +1062,15 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         port = str(self.cfg.get("port", "2277"))
         cur_pid = self.read_pid()
 
+        # 升级脚本各关键节点把横幅回写运行日志（与 python 侧 _log_banner 同样式），
+        # 让运行日志页能按「升级开始/完成/失败」分段浏览内核日志
+        bar = "═" * 24
+
+        def script_banner(text: str) -> str:
+            return ('echo "' + bar + ' ' + text
+                    + ' · $(date \'+%Y-%m-%d %H:%M:%S\') ' + bar
+                    + '" >> "' + log_file + '"\n')
+
         s = ""
         s += ': > "' + up_log + '"\n'
         s += 'echo "=== QwenPaw 内核升级开始 ===" >> "' + up_log + '"\n'
@@ -1082,6 +1118,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         s += 'if [ $rc -ne 0 ]; then\n'
         s += ('  echo "=== 内核升级失败 (exit code: $rc)，服务保持运行未受影响，'
               '可排查后直接重试 ===" >> "' + up_log + '"\n')
+        s += '  ' + script_banner("内核升级失败（pip 退出码 $rc），服务未受影响")
         s += '  echo "$rc" > "' + up_result + '"\n'
         s += '  rm -f "' + up_pid + '"\n'
         s += '  exit 0\n'
@@ -1121,6 +1158,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             s += ('  echo "=== pip 退出码为 0 但内核版本未变化（仍为 v' + old_ver +
                   '）：所选 PyPI 镜像尚未同步新版本，服务未重启 ===" >> "' + up_log + '"\n')
             s += '  echo "  可稍后重试，或在应用设置的「PyPI 安装源」中改为官方源" >> "' + up_log + '"\n'
+            s += '  ' + script_banner("内核升级中止：镜像尚未同步新版本（仍为 v" + old_ver + "），服务未重启")
             s += '  echo 4 > "' + up_result + '"\n'
             s += '  rm -f "' + up_pid + '"\n'
             s += '  exit 0\n'
@@ -1159,6 +1197,9 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
         # --- 3) 启动服务 ---
         s += 'echo "[3/3] 正在启动 QwenPaw 服务..." >> "' + up_log + '"\n'
+        # 重启横幅写运行日志（新内核 stdout 亦重定向至此），横幅后紧跟启动日志
+        s += script_banner("内核升级完成（v" + (old_ver or "未知")
+                           + " -> ${new_ver:-未知}），正在重启服务")
         # start_cmd 嵌入外层单引号包裹的 bash -c：对单引号做 '\'' 转义防御
         # （proxy 密码经 quote 不会产生单引号，但 HOME/PATH 等环境值不设防）
         start_cmd_esc = start_cmd.replace("'", "'\\''")
@@ -1201,7 +1242,8 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             'else\n'
             '  echo "=== 内核启动失败：端口 ' + port + ' 未监听，运行日志尾部如下 ===" >> "' + up_log + '"\n'
             '  tail -n 40 "' + log_file + '" >> "' + up_log + '" 2>/dev/null\n'
-            '  rc=3\n'
+            + script_banner("内核升级失败：新内核未能启动，服务已停止")
+            + '  rc=3\n'
             'fi\n'
             'echo "" >> "' + up_log + '"\n'
         )
@@ -1240,6 +1282,11 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             log_file = self.cfg.get("log_file", "")
             pid_file = self.cfg.get("pid_file", "")
             start_cmd = self.build_service_command()
+
+            # 触发横幅写入运行日志：升级过程跨 upgrade.log 与运行日志两个文件，
+            # 在运行日志里先立一块界碑，后续脚本各阶段也会回写横幅
+            goal = ("，目标 v%s" % latest) if latest else ""
+            self._log_banner("内核升级开始（当前 v%s%s）" % (runtime_version, goal), anchor=True)
 
             # 注意：整个「pip 升级 -> 停止 -> 启动」链路都在后台脚本里执行
             # （pip 在前、服务保持运行，成功才重启），这里只负责派发。

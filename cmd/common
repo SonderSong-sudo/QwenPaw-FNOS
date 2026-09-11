@@ -120,6 +120,14 @@ log_msg() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
 }
 
+# 操作横幅：═ 分隔条，把零散内核日志按「启动/停止」等操作分段，
+# 与 fngateway._log_banner 的样式保持一致（控制台按钮与应用中心操作都能分段）
+log_banner() {
+    ensure_daily_logs
+    local bar="════════════════════════"
+    echo "${bar} $1 · $(date '+%Y-%m-%d %H:%M:%S') ${bar}" >> "${LOG_FILE}"
+}
+
 err_msg() {
     if [ -n "${TRIM_TEMP_LOGFILE}" ]; then
         echo "$1" >> "${TRIM_TEMP_LOGFILE}"
@@ -287,6 +295,8 @@ QW018
     # 启动前确保日志锚点指向当天文件（顺带清理 6 个月前的过期日志）
     ensure_daily_logs
 
+    log_banner "服务启动"
+
     log_msg "正在启动 ${APP_NAME} ..."
 
     # Python 虚拟环境路径
@@ -319,6 +329,11 @@ QW018
 
 # 停止应用
 stop_process() {
+    # 仅在内核确在运行时打横幅：未运行时的停止调用（安装/卸载前清理）不打点
+    if [ -f "${PID_FILE}" ] && check_process "$(cat "${PID_FILE}" 2>/dev/null)"; then
+        log_banner "服务停止"
+    fi
+
     log_msg "正在停止 ${APP_NAME} 服务..."
 
     # 停止网关

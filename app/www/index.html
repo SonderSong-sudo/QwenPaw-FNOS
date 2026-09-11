@@ -922,6 +922,13 @@
       text-decoration: underline;
     }
 
+    /* 操作横幅（服务启动/停止/重启/内核升级，fngateway/cmd 写入的 ═ 分隔条）*/
+    .log-line.log-banner {
+      color: #059669;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+
     .log-empty {
       padding: 48px 0;
       text-align: center;
@@ -985,6 +992,10 @@
       color: #64748b;
     }
 
+    :root[data-theme="dark"] .log-line.log-banner {
+      color: #34d399;
+    }
+
     :root[data-theme="dark"] .log-line .url {
       color: #818cf8;
     }
@@ -1009,6 +1020,10 @@
 
       :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .ts {
         color: #64748b;
+      }
+
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line.log-banner {
+        color: #34d399;
       }
 
       :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .url {
@@ -3123,8 +3138,15 @@
       var frag = document.createDocumentFragment();
       for (var i = 0; i < state.logs.length; i++) {
         var line = document.createElement('div');
-        line.className = 'log-line';
-        appendLogLineText(line, state.logs[i].message != null ? String(state.logs[i].message) : '');
+        var msg = state.logs[i].message != null ? String(state.logs[i].message) : '';
+        /* 操作横幅行（═ 分隔条）整体绿色加粗，跳过语法着色（允许前导缩进） */
+        if (/^\s*═{6,}/.test(msg)) {
+          line.className = 'log-line log-banner';
+          line.textContent = msg;
+        } else {
+          line.className = 'log-line';
+          appendLogLineText(line, msg);
+        }
         frag.appendChild(line);
       }
       term.appendChild(frag);
