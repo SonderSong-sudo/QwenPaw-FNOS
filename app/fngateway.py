@@ -228,10 +228,26 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         venv_python = os.path.join(self.cfg.get("venv", ""), "bin", "python3")
         if os.path.exists(venv_python):
             try:
+                # 不用 m.version('qwenpaw')：旧 editable 安装的 dist-info 残留时
+                # （RECORD 指向 venv 外 pip 卸不掉），多版本并存而 importlib 按
+                # 目录扫描顺序取第一个，可能读到旧版本（26.8.71 实测显示 2.2.0
+                # 而内核实际 2.2.1）。取全部 qwenpaw dist-info 的最高版本，
+                # 与升级脚本「保留最高版 dist-info」的清理逻辑保持一致。
                 code = (
-                    "import importlib.metadata as m;"
-                    "v='';"
-                    "exec('try:\\n v=m.version(\\'qwenpaw\\')\\nexcept Exception: pass');"
+                    "import importlib.metadata as m\n"
+                    "def _k(s):\n"
+                    "    return [(0,int(p)) if p.isdigit() else (1,p) for p in s.split('.')]\n"
+                    "try:\n"
+                    "    vs=[]\n"
+                    "    for d in m.distributions():\n"
+                    "        try:\n"
+                    "            if (d.metadata.get('Name') or '').lower()=='qwenpaw':\n"
+                    "                vs.append(d.version)\n"
+                    "        except Exception:\n"
+                    "            pass\n"
+                    "    v=max(vs,key=_k) if vs else ''\n"
+                    "except Exception:\n"
+                    "    v=''\n"
                     "print(v)"
                 )
                 result = subprocess.run(
