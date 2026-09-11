@@ -962,7 +962,8 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         return ("-i %s" % url) if url else ""
 
     def _build_upgrade_script(self, venv_python: str, pid_file: str, log_file: str,
-                              up_log: str, up_pid: str, up_result: str, start_cmd: str) -> str:
+                              up_log: str, up_pid: str, up_result: str, start_cmd: str,
+                              old_ver: str = "") -> str:
         """构造后台升级脚本：pip 升级内核（服务保持运行）-> 成功才停止并重启（自包含，页面关闭也不中断）。
 
         全流程都在脚本里、HTTP 请求立即返回（对齐 com.dustinky.qwenpaw：升级请求只负责
@@ -1033,6 +1034,25 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         s += '  exit 0\n'
         s += 'fi\n'
         s += 'echo "=== 内核升级成功 ===" >> "' + up_log + '"\n'
+        s += 'echo "" >> "' + up_log + '"\n'
+
+        # --- 1.5) 校验内核版本真的变了（镜像滞后假成功防御） ---
+        # 版本预检走官方 PyPI，pip 下载走向导镜像（缺省清华源）。镜像同步滞后时
+        # pip 报 "Requirement already satisfied" 并返回 0——此前直接当作升级成功
+        # 去停服重启，结果内核还是旧版本且全程无任何报错。现在对比安装前后版本：
+        # 未变化则不重启（服务零扰动），rc=4 明确告知镜像未同步。
+        s += ('new_ver=$("%s" -c "import importlib.metadata as m; '
+              "print(m.version('qwenpaw'))\" 2>/dev/null)\n" % venv_python)
+        if old_ver:
+            s += 'if [ "$new_ver" = "' + old_ver + '" ]; then\n'
+            s += ('  echo "=== pip 退出码为 0 但内核版本未变化（仍为 v' + old_ver +
+                  '）：所选 PyPI 镜像尚未同步新版本，服务未重启 ===" >> "' + up_log + '"\n')
+            s += '  echo "  可稍后重试，或在安装向导中把 PyPI 镜像改为官方源" >> "' + up_log + '"\n'
+            s += '  echo 4 > "' + up_result + '"\n'
+            s += '  rm -f "' + up_pid + '"\n'
+            s += '  exit 0\n'
+            s += 'fi\n'
+        s += 'echo "  内核版本：v' + (old_ver or "未知") + ' -> ${new_ver:-未知}" >> "' + up_log + '"\n'
         s += 'echo "" >> "' + up_log + '"\n'
 
         # --- 2) 停止服务（pip 成功后才执行，等内核真正退出 + 端口释放校验） ---
@@ -1151,7 +1171,8 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             # 注意：整个「pip 升级 -> 停止 -> 启动」链路都在后台脚本里执行
             # （pip 在前、服务保持运行，成功才重启），这里只负责派发。
             script = self._build_upgrade_script(
-                venv_python, pid_file, log_file, up_log, up_pid, up_result, start_cmd
+                venv_python, pid_file, log_file, up_log, up_pid, up_result, start_cmd,
+                old_ver=runtime_version,
             )
             # 脚本落盘为文件执行：避免 bash -c 整段脚本作为 cmdline、内嵌内核
             # 启动命令特征被 _kill_orphan_kernels 误判为孤儿内核而误杀
@@ -1226,6 +1247,15 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
                 "exit_code": 0,
                 "new_version": new_version,
                 "message": "QwenPaw 内核升级完成（v%s），服务已重启" % new_version,
+            }
+        if exit_code == 4:
+            return {
+                "success": False,
+                "upgrading": False,
+                "finished": True,
+                "exit_code": 4,
+                "new_version": None,
+                "message": "PyPI 镜像尚未同步新版本，内核未升级（服务未重启）。可稍后重试，或在安装向导中改用官方源",
             }
         return {
             "success": True,
