@@ -1250,6 +1250,23 @@
     /* ============ 历史日志弹窗 ============ */
     .logs-modal {
       max-width: 680px;
+      /* 限高不超出视口：日志按天归档后列表可达百余条，
+         此前无 max-height，弹窗被列表撑到屏幕外、关闭按钮不可点 */
+      max-height: calc(100vh - 40px);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .logs-modal .modal-head,
+    .logs-modal .modal-foot {
+      flex-shrink: 0;
+    }
+
+    .logs-modal .modal-body {
+      /* 高度交给弹窗分配，列表/预览超长时在 body 内滚动 */
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
     }
 
     .logs-modal .modal-head {
