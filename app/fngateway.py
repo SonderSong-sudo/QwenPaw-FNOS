@@ -1735,6 +1735,9 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 kl = k.lower()
                 if kl in HOP_BY_HOP or kl == "host":
                     continue
+                if kl in CLIENT_IP_HEADERS:
+                    # QW-021：剥离客户端 IP 头，避免内核按真实公网 IP 判鉴权 → 401
+                    continue
                 if kl == "x-qwenpaw-token":
                     # QW-019：网关模式下 JS 把 qwenpaw Bearer 藏在此头（fnOS 网关见
                     # Authorization 即拦 invalid token），转发上游时翻译回标准头
@@ -2016,6 +2019,14 @@ HOP_BY_HOP = frozenset({
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade",
 })
+
+# QW-021：转发上游时剥离的客户端 IP 头。
+# 内核 uvicorn 默认信任来自回环对端的 X-Forwarded-For / X-Real-IP / Forwarded，
+# 会把链路里注入的真实客户端 IP（如外网 FN Connect 中转层写入的公网 IP）当成来源 IP；
+# 于是内核 security.allow_no_auth_hosts（默认仅 127.0.0.1/::1）失配 → API 401 →
+# 前端被踢回 QwenPaw 登录页（局域网链路本就不带这些头，故只有外网复现）。
+# 剥离后内核始终按回环对端对待，与局域网行为一致；fngateway 自己的访问日志不受影响。
+CLIENT_IP_HEADERS = frozenset({"x-forwarded-for", "x-real-ip", "forwarded"})
 
 # 上游 QwenPaw WebUI 的 basename 推断函数（react-router v7）：
 #   function n6(i){return/^\/console(?:\/|$)/.test(i)?c8e:void 0}   // c8e === "/console"
@@ -2715,6 +2726,9 @@ class ProxyRequestHandler(socketserver.BaseRequestHandler):
             for k, v in headers.items():
                 kl = k.lower()
                 if kl in HOP_BY_HOP or kl == "host":
+                    continue
+                if kl in CLIENT_IP_HEADERS:
+                    # QW-021：同 proxy_qwenpaw，剥离客户端 IP 头
                     continue
                 if kl == "x-qwenpaw-token":
                     # QW-019：同 proxy_qwenpaw，网关模式下 Bearer 藏此头，上游翻译回标准头
