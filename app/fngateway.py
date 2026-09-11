@@ -946,24 +946,56 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
     def _pip_mirror_args(self) -> str:
         """内核直升 pip 的镜像参数：读取安装向导落盘的选择（TRIM_PKGVAR/data/pypi_mirror），
         缺省清华源。official 返回空串（直连 PyPI）。"""
-        var_dir = os.path.dirname(self.cfg.get("pid_file", "")) or "/tmp"
-        mirror = ""
-        try:
-            with open(os.path.join(var_dir, "data", "pypi_mirror"), encoding="utf-8") as f:
-                mirror = f.read().strip().lower()
-        except OSError:
-            mirror = ""
         mirrors = {
             "tsinghua": "https://pypi.tuna.tsinghua.edu.cn/simple",
             "aliyun": "https://mirrors.aliyun.com/pypi/simple/",
             "ustc": "https://pypi.mirrors.ustc.edu.cn/simple/",
         }
+        mirror = self._read_pypi_mirror()
         # official 必须显式短路：不识别值会走 get 默认回落清华源，
         # 导致「官方源」选项实际仍走镜像（26.8.68 实测：official 下仍 -i 镜像）
         if mirror == "official":
             return ""
         url = mirrors.get(mirror, mirrors["tsinghua"])
         return ("-i %s" % url) if url else ""
+
+    PYPI_MIRROR_CHOICES = ("official", "tsinghua", "aliyun", "ustc")
+
+    def _read_pypi_mirror(self) -> str:
+        """读 data/pypi_mirror 原始值；缺失/非法值回落 tsinghua（与 _pip_mirror_args 缺省一致）"""
+        var_dir = os.path.dirname(self.cfg.get("pid_file", "")) or "/tmp"
+        try:
+            with open(os.path.join(var_dir, "data", "pypi_mirror"), encoding="utf-8") as f:
+                mirror = f.read().strip().lower()
+        except OSError:
+            mirror = ""
+        return mirror if mirror in self.PYPI_MIRROR_CHOICES else "tsinghua"
+
+    def pypi_mirror_config(self) -> dict:
+        """GET /api/pypi_mirror：当前内核直升 PyPI 安装源（供应用设置模块展示）"""
+        return {"success": True, "mirror": self._read_pypi_mirror()}
+
+    def save_pypi_mirror(self, data: dict) -> dict:
+        """POST /api/pypi_mirror {mirror}：切换内核直升 PyPI 安装源（应用设置模块）。
+
+        写 data/pypi_mirror 供 _pip_mirror_args 读取。注意：cmd/common 在应用
+        配置/生命周期回调时会按安装向导的 qwenpaw_pypi_mirror 重写此文件，
+        控制台切换后若被重置，需在 fnOS 应用中心的应用设置里同步修改向导值。
+        """
+        mirror = str(data.get("mirror", "")).strip().lower()
+        if mirror not in self.PYPI_MIRROR_CHOICES:
+            return {"success": False, "message": "无效的安装源（可选 official/tsinghua/aliyun/ustc）"}
+        var_dir = os.path.dirname(self.cfg.get("pid_file", "")) or "/tmp"
+        data_dir = os.path.join(var_dir, "data")
+        try:
+            os.makedirs(data_dir, exist_ok=True)
+            with open(os.path.join(data_dir, "pypi_mirror"), "w", encoding="utf-8") as f:
+                f.write(mirror)
+        except OSError as e:
+            logger.error("写入 PyPI 安装源失败: %s" % e)
+            return {"success": False, "message": "写入失败：%s" % e}
+        logger.info("PyPI 安装源已切换为 %s", mirror)
+        return {"success": True, "mirror": mirror}
 
     def _build_upgrade_script(self, venv_python: str, pid_file: str, log_file: str,
                               up_log: str, up_pid: str, up_result: str, start_cmd: str,
@@ -1547,6 +1579,20 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 self.send_json(server.save_qw_auth_config(data))
             else:
                 self.send_json(server.qw_auth_config())
+            return
+
+        if action == "pypi_mirror":
+            # 同 qw_auth：GET 分支必须在 POST 全局闸门之前
+            if method == "POST":
+                body = self.read_body()
+                try:
+                    data = json.loads(body) if body else {}
+                except Exception:
+                    self.send_json({"success": False, "message": "请求体不是合法的 JSON"})
+                    return
+                self.send_json(server.save_pypi_mirror(data))
+            else:
+                self.send_json(server.pypi_mirror_config())
             return
 
         if method != "POST":

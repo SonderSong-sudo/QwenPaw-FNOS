@@ -2085,6 +2085,35 @@
             </div>
           </div>
 
+          <!-- PyPI 安装源（内核直升下载通道） -->
+          <div class="card">
+            <div class="card-header">
+              <svg class="icon-sm" style="color:var(--ui-info)">
+                <use href="#i-globe" />
+              </svg>
+              PyPI 安装源
+            </div>
+            <div class="card-body">
+              <div class="form-item">
+                <label>内核升级下载源</label>
+                <select id="pmSelect" class="select" style="max-width:340px">
+                  <option value="official">PyPI 官方源（版本最新，建议配代理）</option>
+                  <option value="tsinghua">清华大学镜像源（国内推荐，同步略有滞后）</option>
+                  <option value="aliyun">阿里云镜像源（国内推荐，同步略有滞后）</option>
+                  <option value="ustc">中科大镜像源（国内推荐，同步略有滞后）</option>
+                </select>
+              </div>
+              <div class="toolbar" style="margin-top:14px">
+                <button class="btn btn-primary" id="btnSaveMirror" onclick="savePyiMirror()">
+                  <svg class="icon-sm">
+                    <use href="#i-check" />
+                  </svg>保存安装源
+                </button>
+              </div>
+              <p class="form-hint">控制台「更新」拉取 QwenPaw 内核时使用的 pip 源。镜像源同步官方新版本有滞后：镜像上还没有新版本时会提示「尚未同步」而不会重启服务。注意：应用配置回调可能按安装向导里的「PyPI 安装源」选择重写此项，若发现被重置请回此处再切换（或在 fnOS 应用中心的应用设置里同步修改）。</p>
+            </div>
+          </div>
+
           <!-- 网络代理 -->
           <div class="card">
             <div class="card-header">
@@ -2749,7 +2778,26 @@
         document.getElementById('npUser').value = np.username || '';
         document.getElementById('npPass').value = '';
         document.getElementById('rpCurrentRow').style.display = gateway.passwordSet ? 'flex' : 'none';
+      }).then(function () {
+        /* PyPI 安装源（内核直升下载通道），失败不阻塞设置页其余部分 */
+        return apiGet('api/pypi_mirror').then(function (d) {
+          if (d && d.success) document.getElementById('pmSelect').value = d.mirror || 'tsinghua';
+        }).catch(function () { });
       }).catch(function () { });
+    }
+    function savePyiMirror() {
+      var btn = document.getElementById('btnSaveMirror');
+      btn.disabled = true;
+      apiPost('api/pypi_mirror', { mirror: document.getElementById('pmSelect').value })
+        .then(function (d) {
+          if (d && d.success) {
+            topToast('PyPI 安装源已切换为「' + document.getElementById('pmSelect').selectedOptions[0].textContent.split('（')[0] + '」', 'success');
+          } else {
+            topToast((d && d.message) || '保存失败', 'error');
+          }
+        })
+        .catch(function () { topToast('保存失败：请求异常', 'error'); })
+        .finally(function () { btn.disabled = false; });
     }
     function toggleNp() {
       var sw = document.getElementById('npSwitch');
