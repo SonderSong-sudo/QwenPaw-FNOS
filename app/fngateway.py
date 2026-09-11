@@ -958,6 +958,10 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             "aliyun": "https://mirrors.aliyun.com/pypi/simple/",
             "ustc": "https://pypi.mirrors.ustc.edu.cn/simple/",
         }
+        # official 必须显式短路：不识别值会走 get 默认回落清华源，
+        # 导致「官方源」选项实际仍走镜像（26.8.68 实测：official 下仍 -i 镜像）
+        if mirror == "official":
+            return ""
         url = mirrors.get(mirror, mirrors["tsinghua"])
         return ("-i %s" % url) if url else ""
 
