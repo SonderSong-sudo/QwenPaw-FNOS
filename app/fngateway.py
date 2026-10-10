@@ -66,7 +66,7 @@ LOG_RETENTION_DAYS = 180
 # 应用安装包版本的**兜底常量**：正常运行时不使用——manifest_version() 会直接读与
 # fngateway.py 同目录的 manifest（随包自动同步）。仅当 manifest 读不到时用作回落，
 # 以及作为 HTTP User-Agent 标识。建议每次改 manifest 时一并更新，避免兜底值失真。
-APP_VERSION = "26.8.73"
+APP_VERSION = "26.8.74"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
 # 应用框架更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
@@ -2047,11 +2047,12 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
             ct = rh_dict.get("content-type", "")
             is_html = "text/html" in ct.lower()
             is_js = "javascript" in ct.lower()
+            is_css = "text/css" in ct.lower()
             has_cl = "content-length" in rh_dict
             is_stream = (not has_cl) or ("text/event-stream" in ct)
 
-            if is_stream and not is_html:
-                # SSE / 无长度响应 -> chunked 流式转发
+            if is_stream and not (is_html or is_css):
+                # SSE / 无长度响应 -> chunked 流式转发（HTML/CSS 需整体改写，先缓冲）
                 out.append("Transfer-Encoding: chunked")
                 out.append("Connection: close")
                 self._write_head_raw(out)
@@ -2070,6 +2071,8 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                     payload = self._adapt_qwenpaw_html(payload)
                 elif is_js:
                     payload = self._patch_qwenpaw_js(payload)
+                elif is_css:
+                    payload = self._adapt_qwenpaw_css(payload)
                 elif upstream == "/api/auth/status" and "json" in ct.lower() and not self.server.qw_auth_required():
                     # QW-020：网关信任模式——fnOS 统一网关已做登录校验（未登录
                     # 请求根本到不了这里），故把内核 auth/status 的 enabled 改写
@@ -2118,6 +2121,8 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
            "invalid token"（详见 QWENPAW_AUTH_ANCHOR 注释）。网关模式下把
            Bearer 挪到 X-Qwenpaw-Token，由 proxy_qwenpaw 翻译回 Authorization。
         3) agents 响应防御：响应体异常时不把 store agents 置 undefined 白屏。
+        4) 整页跳转调用点改写：location.href/assign/replace、window.open 的实参包
+           window.__QWENPAW_NAV__(...)，防 /login 等无前缀绝对路径打出网关根 404。
         """
         global _QWENPAW_PATCH_WARNED
         try:
@@ -2179,6 +2184,12 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
         if QWENPAW_AGENTS_ANCHOR in js:
             js = js.replace(QWENPAW_AGENTS_ANCHOR, QWENPAW_AGENTS_PATCH, 1)
 
+        # ---- 4) 整页跳转调用点改写（网关子路径逃逸根治）----
+        # 401/登出/管理守卫场景上游用 location.href="/login"、location.assign(...)、
+        # location.replace(...) 整页跳转，不经过 pushState，桥接脚本拦不住；
+        # 无前缀路径直接打到 fnOS 网关根路径 404（「页面加载失败」）。
+        js, _nav_n = _patch_nav_calls(js)
+
         return js.encode("utf-8", "replace")
 
     def _adapt_qwenpaw_html(self, payload: bytes) -> bytes:
@@ -2203,6 +2214,36 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
         else:
             html = '<base href="%s/" />' % gw_base + bridge + html
         return html.encode("utf-8", "replace")
+
+    def _adapt_qwenpaw_css(self, payload: bytes) -> bytes:
+        """改写 QwenPaw 前端 CSS：绝对 url(/...) -> url(<网关前缀>/...)。
+
+        CSS 里的 url() 相对**样式表自身 URL** 解析（不受 <base href> 影响）。样式表经
+        网关拿到的是 /app/<appid>/qwenpaw/assets/xxx.css，故 ./ 前缀会再落到 assets/
+        下变成 assets/assets/（实测踩过）。这里直接补成**带前缀的绝对路径**，与样式表
+        所在层级无关：/assets/x -> /app/<appid>/qwenpaw/assets/x。
+        上游 61 处 url(/assets/*.woff2|ttf|png)（KaTeX 字体、codicon 图标、登录页背景图）
+        否则全部打到 fnOS 网关根 404，表现为字体静默回落、图标缺失。
+        """
+        try:
+            css = payload.decode("utf-8", "replace")
+        except Exception:
+            return payload
+        gw_base = (self.server.prefix or "") + "/qwenpaw"
+
+        def _fix_url(m):
+            q1, path, q2 = m.group(1) or "", m.group(2), m.group(3) or ""
+            # 已带网关前缀 / 协议相对(//cdn) / 非绝对路径 -> 不动
+            if path.startswith(gw_base + "/") or path == gw_base:
+                return m.group(0)
+            return "url(%s%s%s%s)" % (q1, gw_base, path, q2)
+
+        # url(/xxx) / url("/xxx") / url('/xxx')；// 协议相对路径排除（(?!\/)）
+        css = re.sub(r'url\(\s*(["\']?)(/(?!\/)[^\s)"\']*)\s*(["\']?)\s*\)', _fix_url, css)
+        # @import "/xxx.css" 形式（只补前缀，保留原引号）
+        css = re.sub(r'(@import\s+["\'])(?=/(?!/))',
+                     lambda m: m.group(1) + gw_base, css)
+        return css.encode("utf-8", "replace")
 
     def _write_head_raw(self, lines):
         head = ("\r\n".join(lines) + "\r\n\r\n").encode("latin-1")
@@ -2338,6 +2379,191 @@ QWENPAW_AUTH_RE = re.compile(r'(\w+)&&\((\w+)\.Authorization=`Bearer \$\{(\w+)\}
 QWENPAW_AGENTS_ANCHOR = 'then(a=>{e({agents:a.agents})})'
 QWENPAW_AGENTS_PATCH = 'then(a=>{e({agents:Array.isArray(a.agents)?a.agents:[]})})'
 
+# ---- 整页跳转调用点改写（网关子路径逃逸根治，2026-10-10 实测定谳）----
+# 上游在 401/登出/管理页守卫等场景用【整页跳转】而非 SPA 路由：
+#   window.location.href="/login" / window.location.assign("/login")
+#   window.location.replace(ro(window.location.pathname,"/hub/admin")) ...
+# 这些不经过 history.pushState，桥接脚本的 pushState 拦截覆盖不到；/login 这类
+# 无前缀绝对路径会直接打到 fnOS 网关根路径 -> 404 -> fnOS「页面加载失败」错误页
+# （用户切页面偶发的正是这个）。修法：把这类调用点的实参包一层
+# window.__QWENPAW_NAV__(...)（桥接脚本定义，无前缀同源绝对路径补前缀、幂等），
+# 与根路径部署时的行为对齐。
+_NAV_WRAP = "window.__QWENPAW_NAV__("
+# location.href= 赋值。排除：== 比较（href==/href===）、iframe 等他人 window 的
+# location（Rt.location.href= / s.location.href=）—— 只认裸 location 与
+# window./document. 前缀。
+_NAV_HREF_RE = re.compile(
+    r'(?:(?<![.\w])|(?<=window\.)|(?<=document\.))location\.href=(?!=)')
+# location.assign/replace 与 window.open（同样排除他人 window；window.open 前不能是属性访问）
+_NAV_CALL_RE = re.compile(
+    r'(?:(?<![.\w])|(?<=window\.)|(?<=document\.))location\.(?:assign|replace)\('
+    r'|(?<![.\w])window\.open\(')
+
+
+_NAV_KEYWORD_BEFORE_RE = re.compile(
+    r"\b(return|typeof|case|in|of|new|delete|void|do|else|yield|await)$")
+
+
+def _skip_regex_literal(js: str, i: int) -> int:
+    """js[i] 是正则字面量的起始 '/'，返回其结束下标（不含，含 flags）。"""
+    n = len(js)
+    j = i + 1
+    in_cls = False
+    while j < n:
+        c = js[j]
+        if c == "\\":
+            j += 2
+            continue
+        if c == "\n":                  # 未闭合就换行 -> 其实不是正则，按除法处理
+            return i + 1
+        if c == "[":
+            in_cls = True
+        elif c == "]":
+            in_cls = False
+        elif c == "/" and not in_cls:
+            j += 1
+            while j < n and (js[j].isalpha()):
+                j += 1
+            return j
+        j += 1
+    return n
+
+
+def _mask_strings(js: str) -> bytearray:
+    """标记字符串/模板/注释/正则字面量区段（这些区段里的匹配一律忽略）。
+
+    ⚠️ 正则字面量必须识别：minified 代码里大量 /...['"].../ 形态的正则，
+    若把其中的引号当字符串起点，会吞掉后面大段真实代码，导致补丁漏包。
+    用「前一个有效字符」启发式区分除法与正则（表达式位置后 / 是正则）。
+    """
+    mask = bytearray(len(js))
+    i, n = 0, len(js)
+    last_sig = ""                       # 上一个代码区有效字符（跳过空白）
+    while i < n:
+        c = js[i]
+        if c in "'\"`":
+            q = c
+            j = i + 1
+            while j < n:
+                if js[j] == "\\":
+                    j += 2
+                    continue
+                if js[j] == q:
+                    j += 1
+                    break
+                j += 1
+            j = min(j, n)
+            mask[i:j] = b"\x01" * (j - i)
+            i = j
+            last_sig = '"'              # 字符串是"值"，其后 / 是除法
+            continue
+        if c == "/" and i + 1 < n and js[i + 1] == "/":
+            j = js.find("\n", i)
+            j = n if j < 0 else j
+            mask[i:j] = b"\x01" * (j - i)
+            i = j
+            continue
+        if c == "/" and i + 1 < n and js[i + 1] == "*":
+            j = js.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+            mask[i:j] = b"\x01" * (j - i)
+            i = j
+            continue
+        if c == "/":
+            prev = last_sig
+            after_value = (prev.isalnum() or prev in '")]}"_$')   # 值之后是除法
+            after_kw = _NAV_KEYWORD_BEFORE_RE.search(js[max(0, i - 12):i]) is not None
+            is_re = (not after_value) or after_kw
+            if is_re:
+                j = _skip_regex_literal(js, i)
+                if j > i + 1:          # 确实按正则消费了
+                    mask[i:j] = b"\x01" * (j - i)
+                    i = j
+                    last_sig = "/"     # 正则也是"值"
+                    continue
+        if not c.isspace():
+            last_sig = c
+        i += 1
+    return mask
+
+
+def _scan_expr_end(js: str, i: int) -> int:
+    """从 i 扫到一个 JS 表达式的结束位置（返回下标，不含）。
+
+    括号/方括号/花括号配平，字符串与模板字面量整体跳过；深度归零后遇 ; , ) ] } 停。
+    用于 location.href= 的右值与 assign/replace/open 的第一个实参。
+    """
+    depth = 0
+    n = len(js)
+    while i < n:
+        c = js[i]
+        if c in "'\"`":
+            q = c
+            i += 1
+            while i < n:
+                if js[i] == "\\":
+                    i += 2
+                    continue
+                if js[i] == q:
+                    i += 1
+                    break
+                i += 1
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif depth == 0 and c in ";,":
+            return i
+        i += 1
+    return n
+
+
+def _patch_nav_calls(js: str):
+    """把整页跳转调用点的实参包一层 window.__QWENPAW_NAV__(...)。
+
+    - location.href=X        -> location.href=window.__QWENPAW_NAV__(X)
+    - location.assign(X)     -> location.assign(window.__QWENPAW_NAV__(X))
+    - location.replace(X)    -> location.replace(window.__QWENPAW_NAV__(X))
+    - window.open(X,...)     -> window.open(window.__QWENPAW_NAV__(X),...)  只包第一个实参
+    返回 (改写后 js, 改写处数)。幂等：已包裹的实参跳过。
+    """
+    try:
+        mask = _mask_strings(js)
+        edits = []
+        for m in _NAV_HREF_RE.finditer(js):
+            if mask[m.start()]:
+                continue
+            pos = m.end()
+            if js.startswith(_NAV_WRAP, pos):
+                continue
+            end = _scan_expr_end(js, pos)
+            if end <= pos:
+                continue
+            edits.append((pos, end))
+        for m in _NAV_CALL_RE.finditer(js):
+            if mask[m.start()]:
+                continue
+            pos = m.end()          # 恰好是 '(' 之后
+            if js.startswith(_NAV_WRAP, pos):
+                continue
+            end = _scan_expr_end(js, pos)
+            # ')' = 只有一个实参；',' = 多实参，只包第一个（window.open(u, t, f) 常见）
+            if end <= pos or end >= len(js) or js[end] not in "),":
+                continue           # 空实参/异常形态不动
+            edits.append((pos, end))
+        if not edits:
+            return js, 0
+        out = js
+        for pos, end in sorted(set(edits), reverse=True):
+            out = out[:pos] + _NAV_WRAP + out[pos:end] + ")" + out[end:]
+        return out, len(set(edits))
+    except Exception:
+        return js, 0               # 补丁失败不阻断代理，退回原文
+
+
 # 统一网关子路径反代时注入前端页面的桥接脚本（参考 DHS fnGatewayBridgeScript）：
 # 把 SPA 发出的同源绝对路径请求（/api/... 等）自动补全网关子路径前缀，
 # 并改写 WebSocket/EventSource 的同源路径。静态资源由 HTML 改写为相对路径。
@@ -2392,6 +2618,71 @@ QWENPAW_BRIDGE_SCRIPT = r"""<script>
       return of(input, init);
     };
   }
+  // 整页跳转兜底：上游 401/登出/管理页守卫会 location.href="/login"、
+  // location.assign(...) 直接整页跳绝对路径——不经过 pushState，上面的拦截覆盖
+  // 不到；无前缀路径会打到 fnOS 网关根路径 404（表现为「页面加载失败」）。
+  // bundle 侧补丁把这类调用点的实参包成本函数：无前缀同源绝对路径补前缀，幂等。
+  window.__QWENPAW_NAV__ = function(u){
+    try {
+      if (typeof u !== 'string' || !u) return u;
+      if (u.charAt(0) === '/') return (u.indexOf(B) === 0) ? u : B + u;
+      if (/^https?:/i.test(u)) {
+        var x = new URL(u);
+        if (x.origin === location.origin && x.pathname.indexOf(B) !== 0)
+          return x.origin + B + x.pathname + x.search + x.hash;
+      }
+      return u;
+    } catch(e) { return u; }
+  };
+  // 站内绝对路径「资源/导航」兜底（网关子路径部署）：上游 JSX 与依赖里写死的 "/xxx"
+  // 会打到 fnOS 网关根 -> 404，典型三例：
+  //   <img src="/qwenpaw.png">            图标裂图
+  //   new Worker("/assets/*.worker.js")   Monaco 编辑器 worker 挂掉
+  //   <a href="/xxx"> / <form action="/xxx">  点击即整页跳转脱前缀
+  // 在「属性赋值 / setAttribute / Worker 构造」三个入口统一补前缀；
+  // data:、blob:、mailto:、#hash、相对路径、跨域一律原样放行。
+  try {
+    var RES_TAGS = /^(A|AREA|IMG|SCRIPT|LINK|IFRAME|SOURCE|VIDEO|AUDIO|EMBED|FORM)$/;
+    var RES_ATTRS = { src: 1, href: 1, action: 1, poster: 1 };
+    function wrapProp(Ctor, prop){
+      try {
+        var d = Object.getOwnPropertyDescriptor(Ctor.prototype, prop);
+        if (!d || !d.set || !d.get) return;
+        Object.defineProperty(Ctor.prototype, prop, {
+          configurable: true, enumerable: d.enumerable,
+          get: function(){ return d.get.call(this); },
+          set: function(v){ return d.set.call(this, fix(v)); }
+        });
+      } catch(e) {}
+    }
+    if (window.HTMLAnchorElement)   wrapProp(HTMLAnchorElement, 'href');
+    if (window.HTMLAreaElement)     wrapProp(HTMLAreaElement, 'href');
+    if (window.HTMLImageElement)    wrapProp(HTMLImageElement, 'src');
+    if (window.HTMLScriptElement)   wrapProp(HTMLScriptElement, 'src');
+    if (window.HTMLLinkElement)     wrapProp(HTMLLinkElement, 'href');
+    if (window.HTMLIFrameElement)   wrapProp(HTMLIFrameElement, 'src');
+    if (window.HTMLSourceElement)   wrapProp(HTMLSourceElement, 'src');
+    if (window.HTMLVideoElement)    wrapProp(HTMLVideoElement, 'poster');
+    if (window.HTMLFormElement)     wrapProp(HTMLFormElement, 'action');
+    if (window.Element) {
+      var _setAttr = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function(n, v){
+        if (typeof v === 'string' && RES_ATTRS[n] && RES_TAGS.test(this.tagName)) v = fix(v);
+        return _setAttr.call(this, n, v);
+      };
+    }
+    function wrapCtor(name, key){
+      var O = window[name];
+      if (!O) return;
+      window[name] = function(u, o){
+        try { u = fix(typeof u === 'string' ? u : String(u)); } catch(e) {}
+        return new O(u, o);
+      };
+      window[name].prototype = O.prototype;
+    }
+    wrapCtor('Worker');
+    wrapCtor('SharedWorker');
+  } catch(_) {}
   // SPA 路由（React Router v7 等）通过 history.pushState/replaceState 跳转。
   // basename 正确后上游自身会写出带前缀的 URL（basename + to），此处补前缀仅作兜底：
   // 保证 URL 不脱出 fnOS 统一网关（否则 favicon、刷新、子路由 fallback 全部 404）。
