@@ -877,6 +877,8 @@
       flex: 1;
       min-height: 0;
       overflow: auto;
+      /* 裁头时由 JS 手动补偿滚动高度，禁掉浏览器自动锚定（否则双重补偿会往上跑） */
+      overflow-anchor: none;
       padding: 12px 14px 16px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Courier New", monospace;
       font-size: 12px;
@@ -892,32 +894,56 @@
       color: var(--ui-text);
     }
 
-    .log-line .lvl {
+    /* 日志语法高亮：类名与配色 1:1 对齐 DHS（deepseek.harness）Logs 组件的
+       highlight.js `harness-log` 语言定义与 hljs 类样式（Tailwind 色板）。
+       DHS 七类：type/keyword/meta/comment/number/string/link；
+       本项目的 DEBUG/TRACE 是 DHS 没定义的扩展（lvl lv-debug）。 */
+    .log-line .hljs-type {
+      /* [FATAL] / [ERROR] */
+      color: #ef4444;
       font-weight: 600;
     }
 
-    .lvl.lv-error,
-    .lvl.lv-fatal {
-      color: #ef4444;
-    }
-
-    .lvl.lv-warn {
+    .log-line .hljs-keyword {
+      /* [WARN] / [WARNING] */
       color: #f59e0b;
+      font-weight: 600;
     }
 
-    .lvl.lv-info {
+    .log-line .hljs-meta {
+      /* [INFO] */
       color: #2563eb;
+      font-weight: 600;
     }
 
-    .lvl.lv-debug {
+    .log-line .lvl.lv-debug {
+      /* DEBUG / TRACE（DHS 无此类，本项目扩展） */
       color: #0891b2;
+      font-weight: 600;
     }
 
-    .log-line .ts {
+    .log-line .hljs-comment {
+      /* 正文里散落的时间戳 */
       color: #94a3b8;
     }
 
-    .log-line .url {
+    .log-line .log-time {
+      /* 行首时间戳（从 `LEVEL path │ 时间 │ 正文` 重排提到最前，标红醒目） */
+      color: #dc2626;
+      font-weight: 600;
+    }
+
+    .log-line .hljs-string {
+      /* 路径 / 模块路径 */
+      color: #059669;
+    }
+
+    .log-line .hljs-number {
+      color: #0891b2;
+    }
+
+    .log-line .hljs-link {
+      /* URL */
       color: #4f46e5;
       text-decoration: underline;
     }
@@ -970,64 +996,86 @@
       color: var(--ui-text);
     }
 
-    /* 深色模式语法高亮对比度（参考 DHS） */
-    :root[data-theme="dark"] .lvl.lv-error,
-    :root[data-theme="dark"] .lvl.lv-fatal {
+    /* 深色模式语法高亮对比度（同 DHS 的 html.dark 覆盖值） */
+    :root[data-theme="dark"] .log-line .hljs-type {
       color: #f87171;
     }
 
-    :root[data-theme="dark"] .lvl.lv-warn {
+    :root[data-theme="dark"] .log-line .hljs-keyword {
       color: #fbbf24;
     }
 
-    :root[data-theme="dark"] .lvl.lv-info {
+    :root[data-theme="dark"] .log-line .hljs-meta {
       color: #60a5fa;
     }
 
-    :root[data-theme="dark"] .lvl.lv-debug {
+    :root[data-theme="dark"] .log-line .lvl.lv-debug {
       color: #38bdf8;
     }
 
-    :root[data-theme="dark"] .log-line .ts {
+    :root[data-theme="dark"] .log-line .hljs-comment {
       color: #64748b;
+    }
+
+    :root[data-theme="dark"] .log-line .log-time {
+      color: #f87171;
+    }
+
+    :root[data-theme="dark"] .log-line .hljs-string {
+      color: #34d399;
+    }
+
+    :root[data-theme="dark"] .log-line .hljs-number {
+      color: #38bdf8;
+    }
+
+    :root[data-theme="dark"] .log-line .hljs-link {
+      color: #818cf8;
     }
 
     :root[data-theme="dark"] .log-line.log-banner {
       color: #34d399;
     }
 
-    :root[data-theme="dark"] .log-line .url {
-      color: #818cf8;
-    }
-
     @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]):not([data-theme="dark"]) .lvl.lv-error,
-      :root:not([data-theme="light"]):not([data-theme="dark"]) .lvl.lv-fatal {
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .hljs-type {
         color: #f87171;
       }
 
-      :root:not([data-theme="light"]):not([data-theme="dark"]) .lvl.lv-warn {
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .hljs-keyword {
         color: #fbbf24;
       }
 
-      :root:not([data-theme="light"]):not([data-theme="dark"]) .lvl.lv-info {
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .hljs-meta {
         color: #60a5fa;
       }
 
-      :root:not([data-theme="light"]):not([data-theme="dark"]) .lvl.lv-debug {
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .lvl.lv-debug {
         color: #38bdf8;
       }
 
-      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .ts {
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .hljs-comment {
         color: #64748b;
+      }
+
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .log-time {
+        color: #f87171;
+      }
+
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .hljs-string {
+        color: #34d399;
+      }
+
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .hljs-number {
+        color: #38bdf8;
+      }
+
+      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .hljs-link {
+        color: #818cf8;
       }
 
       :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line.log-banner {
         color: #34d399;
-      }
-
-      :root:not([data-theme="light"]):not([data-theme="dark"]) .log-line .url {
-        color: #818cf8;
       }
     }
 
@@ -3079,7 +3127,7 @@
       apiPost('api/clear_logs').then(function (d) {
         if (d && d.success) {
           state.logs = [];
-          renderLogs();
+          renderLogs(true);   /* 用户主动清空：跳过「选区冻结」立即生效 */
           toast(d.message || '日志已清空', 'success');
         } else {
           toast('清空日志失败：' + ((d && d.message) || '未知错误'), 'error');
@@ -3091,66 +3139,227 @@
       showConfirm('清空日志', '将清空今日运行日志与网关日志文件的内容（历史按天日志不受影响），此操作不可撤销。', clearLogsNow);
     }
 
-    /* 日志行语法着色（参考 DHS highlight.js harness-log 规则，仅用颜色类不做注入）：
-       FATAL/ERROR 红 · WARN 黄 · INFO 蓝 · DEBUG 青 · 时间戳灰 · URL 紫下划线 */
+    /* 已渲染进 DOM 的日志消息（与 state.logs 同构，用于增量比对）；
+       logRenderPending＝因选区活跃而推迟的那次渲染 */
+    var renderedLogs = [];
+    var logRenderPending = false;
+
+    /* 日志行语法着色：规则与类名对齐 DHS（deepseek.harness）的 highlight.js
+       `harness-log` 语言定义，颜色见上方 CSS。规则顺序即优先级（同 hljs 的
+       contains 顺序，前一条匹配即消费该段）：
+
+         1) 级别 —— DHS 只认括号形式 `[ERROR]`；我们的内核/脚本日志是裸级别词
+            （`INFO vol1/...`、`2026-09-15 ... - ERROR: ...`），故放宽为：
+            括号形式任意位置 + 裸级别词仅限行首或 `- ` / `| ` 之后（避免把正文里
+            出现的 "error/info" 也染色）。
+         2) 时间戳 —— 原样照搬 DHS（支持 `-`//`/` 分隔、`T` 分隔、毫秒/逗号毫秒）
+         3) URL   → hljs-link（原样照搬）
+         4) 路径  → hljs-string（DHS 要求以 `/` 开头且多段；我们额外允许无前导
+            斜杠，因为 fnOS 侧日志大量出现 `vol1/@appdata/...` 这种相对路径）
+         5) 数字  → hljs-number（原样照搬）
+
+       类名沿用 hljs 约定（type/keyword/meta/comment/link/string/number），
+       DEBUG/TRACE 是 DHS 没有的扩展，沿用本项目既有的 lvl lv-debug。 */
+    var LOG_LEVEL_CLASS = {
+      fatal: 'hljs-type', critical: 'hljs-type', error: 'hljs-type',
+      warn: 'hljs-keyword', warning: 'hljs-keyword',
+      info: 'hljs-meta',
+      debug: 'lvl lv-debug', trace: 'lvl lv-debug'
+    };
+    var LOG_TOKEN_RE = new RegExp(
+      '(^|[-|]\\s)\\b(FATAL|CRITICAL|ERROR|WARN|WARNING|INFO|DEBUG|TRACE)\\b' +
+      '|\\[(FATAL|CRITICAL|ERROR|WARN|WARNING|INFO|DEBUG|TRACE)\\]' +
+      '|\\b(\\d{4}[-/]\\d{2}[-/]\\d{2}(?:[ T]\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?)?)' +
+      '|(https?:\\/\\/[^\\s\'"<>]+)' +
+      '|((?:\\/?[\\w.@+-]+)(?:\\/[\\w.@+-]+)+\\/?)' +
+      '|\\b(\\d+)\\b',
+      'g'
+    );
+
+    function appendLogSpan(parent, cls, raw) {
+      var span = document.createElement('span');
+      span.className = cls;
+      span.textContent = raw;
+      parent.appendChild(span);
+    }
+
     function appendLogLineText(parent, text) {
       if (!text) return;
-      var re = /(FATAL|ERROR|WARNING|WARN|INFO|DEBUG)|\b(\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?)|\b(https?:\/\/[^\s'"<>]+)/g;
       var m, last = 0;
-      while ((m = re.exec(text)) !== null) {
+      LOG_TOKEN_RE.lastIndex = 0;
+      while ((m = LOG_TOKEN_RE.exec(text)) !== null) {
+        if (m[0] === '') { LOG_TOKEN_RE.lastIndex++; continue; }  /* 防零宽匹配死循环 */
         if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
-        var cls, raw;
-        if (m[1]) {
-          cls = 'lvl lv-' + (m[1].toLowerCase() === 'warning' ? 'warn' : m[1].toLowerCase());
-          raw = m[1];
-        } else if (m[2]) {
-          cls = 'ts';
-          raw = m[2];
+        if (m[1] !== undefined) {          /* 裸级别：分隔前缀（行首/`- `/`| `）原样保留 */
+          if (m[1]) parent.appendChild(document.createTextNode(m[1]));
+          appendLogSpan(parent, LOG_LEVEL_CLASS[m[2].toLowerCase()], m[2]);
+        } else if (m[3] !== undefined) {   /* 括号级别：连方括号一起着色 */
+          appendLogSpan(parent, LOG_LEVEL_CLASS[m[3].toLowerCase()], '[' + m[3] + ']');
+        } else if (m[4] !== undefined) {
+          appendLogSpan(parent, 'hljs-comment', m[4]);
+        } else if (m[5] !== undefined) {
+          appendLogSpan(parent, 'hljs-link', m[5]);
+        } else if (m[6] !== undefined) {
+          appendLogSpan(parent, 'hljs-string', m[6]);
         } else {
-          cls = 'url';
-          raw = m[3];
+          appendLogSpan(parent, 'hljs-number', m[7]);
         }
-        var span = document.createElement('span');
-        span.className = cls;
-        span.textContent = raw;
-        parent.appendChild(span);
-        last = m.index + raw.length;
+        last = m.index + m[0].length;
       }
       if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
     }
 
-    /* 渲染日志：仅当渲染前已贴底（距底部 <=40px）才跟随滚动到底——智能跟随。
-       正在翻看上方历史日志时，新日志到达只追加内容，绝不把视图强拉到最底下 */
-    function renderLogs() {
+    /* 构造单行日志（横幅行整行绿色加粗，跳过语法着色） */
+    /* 内核日志行形态：LEVEL path:line │ 时间戳 │ 正文（分隔符 │/|）。
+       渲染时重排为：时间 │ LEVEL path │ 正文 —— 时间戳提到最前并标红，
+       其余顺序不变；级别词必须是已知日志级别才走重排，避免误伤普通文本。 */
+    var LOG_KERNEL_RE = new RegExp(
+      '^\\s*([A-Za-z]+)[ \\t]+(\\S+)[ \\t]*[\\u2502|][ \\t]*' +
+      '(\\d{4}[-/]\\d{2}[-/]\\d{2}(?:[ T]\\d{2}:\\d{2}:\\d{2}(?:[.,]\\d+)?)?)' +
+      '[ \\t]*[\\u2502|][ \\t]*([\\s\\S]*)$'
+    );
+
+    function buildLogLine(msg) {
+      var line = document.createElement('div');
+      /* 操作横幅行（═ 分隔条）整体绿色加粗，跳过语法着色（允许前导缩进） */
+      if (/^\s*═{6,}/.test(msg)) {
+        line.className = 'log-line log-banner';
+        line.textContent = msg;
+        return line;
+      }
+      line.className = 'log-line';
+      var km = LOG_KERNEL_RE.exec(msg);
+      var lvlCls = km ? LOG_LEVEL_CLASS[km[1].toLowerCase()] : undefined;
+      if (km && lvlCls) {
+        appendLogSpan(line, 'log-time', km[3]);          /* 时间戳置顶标红 */
+        line.appendChild(document.createTextNode(' \u2502 '));
+        appendLogSpan(line, lvlCls, km[1]);
+        line.appendChild(document.createTextNode(' '));
+        appendLogSpan(line, 'hljs-string', km[2]);
+        line.appendChild(document.createTextNode(' \u2502 '));
+        appendLogLineText(line, km[4]);
+      } else {
+        appendLogLineText(line, msg);
+      }
+      return line;
+    }
+
+    function logMsgs(list) {
+      var out = [];
+      for (var i = 0; i < list.length; i++) {
+        var it = list[i];
+        if (it && it.message != null) out.push(String(it.message));
+        else out.push(typeof it === 'string' ? it : '');
+      }
+      return out;
+    }
+
+    /* a[aStart .. aStart+n-1] 是否逐行等于 b[0 .. n-1]。
+       倒序比较：失配立刻返回（前缀重叠探测的每个候选只花 1 次比较） */
+    function sameLogRun(a, b, aStart, n) {
+      for (var i = n - 1; i >= 0; i--) {
+        if (a[aStart + i] !== b[i]) return false;
+      }
+      return true;
+    }
+
+    /* 拖拽复制/阅读选中期间冻结渲染：此时若重建 DOM，选区会被清掉（复制到一半就断，
+       表现为「从下往上复制没几行就跳回去」）。仅当必须重建时才受影响，
+       纯追加/裁头走的增量路径不会破坏选区。 */
+    function logSelectionActive() {
+      var term = document.getElementById('logTerm');
+      if (!term) return false;
+      var sel = window.getSelection && window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false;
+      var node = sel.getRangeAt(0).commonAncestorContainer;
+      var el = node ? (node.nodeType === 1 ? node : node.parentNode) : null;
+      return !!(el && term.contains(el));
+    }
+
+    /* 渲染日志（增量优先，避免轮询打断复制/阅读）：
+       - 内容未变 → 零 DOM 动作；
+       - 新列表以「已渲染列表的某个后缀」开头（尾部日志的正常形态）→ 只裁掉滚出
+         窗口的头部节点、追加尾部新行，并补偿被裁掉的高度，阅读位置不动；
+       - 头部不连续（清空/切文件/一次涌入超过窗口）→ 全量重建，重建前保存并还原
+         scrollTop（浏览器清空 innerHTML 会把 scrollTop 钳到 0，这正是「跳回顶部」的来源）；
+       - 重建期间若有选区则推迟到选区结束（logRenderPending）再渲染。
+       滚动跟随：仅当渲染前已贴底（距底部 <=40px）才滚到底——智能跟随。 */
+    function renderLogs(force) {
       var term = document.getElementById('logTerm');
       if (!term) return;
       var stick = isLogNearBottom(term);
-      term.innerHTML = '';
-      if (state.logs.length === 0) {
+      var msgs = logMsgs(state.logs);
+
+      if (msgs.length === 0) {
+        var want = state.logsLoaded ? '暂无日志' : '正在获取运行日志…';
+        var head = term.firstChild;
+        if (!force && renderedLogs.length === 0 && head &&
+            head.className === 'log-empty' && head.textContent === want) {
+          updateLogBottomBtn();
+          return;
+        }
+        term.innerHTML = '';
+        renderedLogs = [];
         var empty = document.createElement('div');
         empty.className = 'log-empty';
-        empty.textContent = state.logsLoaded ? '暂无日志' : '正在获取运行日志…';
+        empty.textContent = want;
         term.appendChild(empty);
-        if (stick) term.scrollTop = 0;
+        term.scrollTop = 0;
         updateLogBottomBtn();
         return;
       }
-      var frag = document.createDocumentFragment();
-      for (var i = 0; i < state.logs.length; i++) {
-        var line = document.createElement('div');
-        var msg = state.logs[i].message != null ? String(state.logs[i].message) : '';
-        /* 操作横幅行（═ 分隔条）整体绿色加粗，跳过语法着色（允许前导缩进） */
-        if (/^\s*═{6,}/.test(msg)) {
-          line.className = 'log-line log-banner';
-          line.textContent = msg;
-        } else {
-          line.className = 'log-line';
-          appendLogLineText(line, msg);
-        }
-        frag.appendChild(line);
+
+      /* 求最大重叠：renderedLogs 的尾部 k 行 == msgs 的头部 k 行（k 从大到小取首个命中） */
+      var keep = -1;
+      var limit = Math.min(renderedLogs.length, msgs.length);
+      for (var k = limit; k > 0; k--) {
+        if (sameLogRun(renderedLogs, msgs, renderedLogs.length - k, k)) { keep = k; break; }
       }
+
+      if (keep < 0) {
+        if (!force && logSelectionActive()) { logRenderPending = true; return; }
+        logRenderPending = false;
+        rebuildLogs(term, msgs, stick);
+        return;
+      }
+
+      logRenderPending = false;
+      if (keep === renderedLogs.length && msgs.length === renderedLogs.length) {
+        updateLogBottomBtn();   /* 内容未变：不碰 DOM */
+        return;
+      }
+
+      /* 裁掉已滚出窗口的头部节点（记录高度用于补偿），再追加尾部新行。
+         高度用 getBoundingClientRect 取亚像素值：offsetHeight 会取整，
+         每轮 0.4px 的误差累积下来视图会慢慢漂移（.log-term 已关掉
+         overflow-anchor，滚动补偿完全由这里负责） */
+      var removedHeight = 0;
+      var dropCount = renderedLogs.length - keep;
+      for (var i = 0; i < dropCount; i++) {
+        var first = term.firstChild;
+        if (!first) break;
+        removedHeight += first.getBoundingClientRect().height || 0;
+        term.removeChild(first);
+      }
+      var frag = document.createDocumentFragment();
+      for (var j = keep; j < msgs.length; j++) frag.appendChild(buildLogLine(msgs[j]));
       term.appendChild(frag);
+      renderedLogs = msgs.slice();
       if (stick) term.scrollTop = term.scrollHeight;
+      else if (removedHeight) term.scrollTop = Math.max(0, term.scrollTop - removedHeight);
+      updateLogBottomBtn();
+    }
+
+    /* 全量重建：保存并还原 scrollTop（清空 innerHTML 会把滚动位置钳到 0） */
+    function rebuildLogs(term, msgs, stick) {
+      var prevTop = term.scrollTop;
+      term.innerHTML = '';
+      var frag = document.createDocumentFragment();
+      for (var i = 0; i < msgs.length; i++) frag.appendChild(buildLogLine(msgs[i]));
+      term.appendChild(frag);
+      renderedLogs = msgs.slice();
+      if (stick) term.scrollTop = term.scrollHeight;
+      else term.scrollTop = Math.min(prevTop, Math.max(0, term.scrollHeight - term.clientHeight));
       updateLogBottomBtn();
     }
 
@@ -3189,6 +3398,18 @@
       var term = document.getElementById('logTerm');
       if (term) term.addEventListener('scroll', updateLogBottomBtn);
     })();
+    /* 选区结束（复制完成/取消）后，补渲染被冻结的那一次刷新 */
+    document.addEventListener('selectionchange', function () {
+      if (logRenderPending && !logSelectionActive()) renderLogs();
+    });
+    /* 兜底：指针松开/窗口失焦时若仍有待渲染，也补一次（防止选区事件在
+       拖出窗口等场景下不触发，导致日志长时间不刷新） */
+    window.addEventListener('pointerup', function () {
+      if (logRenderPending && !logSelectionActive()) renderLogs();
+    });
+    window.addEventListener('blur', function () {
+      if (logRenderPending) renderLogs();
+    });
 
     /* ================= 历史日志（打开日志文件夹） ================= */
     var logHistory = { dir: '', file: '' };

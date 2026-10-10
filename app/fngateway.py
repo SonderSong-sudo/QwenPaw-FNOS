@@ -63,13 +63,57 @@ LOG_FILE_PAT = re.compile(r"^qwenpaw-(console|gateway)-(\d{8})\.log$")
 # 日志保留时长（与 cmd/common LOG_RETENTION_DAYS 一致）：6 个月
 LOG_RETENTION_DAYS = 180
 
-# 应用安装包版本（与 manifest 的 version 保持同步；升级时同步更新）
-APP_VERSION = "26.8.56"
+# 应用安装包版本的**兜底常量**：正常运行时不使用——manifest_version() 会直接读与
+# fngateway.py 同目录的 manifest（随包自动同步）。仅当 manifest 读不到时用作回落，
+# 以及作为 HTTP User-Agent 标识。建议每次改 manifest 时一并更新，避免兜底值失真。
+APP_VERSION = "26.8.73"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
 # 应用框架更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
 UPDATE_CHECK_URL = "https://api.github.com/repos/yuexps/QwenPaw-FNOS/releases/latest"
 UPDATE_CHECK_TTL = 600  # 检查结果缓存 10 分钟
+
+# 读取 venv 内 qwenpaw 内核版本的扫描脚本（get_version 与控制台升级脚本共用，
+# 保证「控制台显示的版本」与「升级校验的版本」口径永远一致）。
+#
+# 为什么不能直接用 importlib.metadata.version("qwenpaw")：
+#   环境里常同时存在两份 qwenpaw 元数据——
+#     (a) venv/site-packages 里 pip 刚装好的 wheel（新版本）
+#     (b) /vol1/@appcenter/<appid>/server 源码树里的 editable 元数据（旧版本，
+#         pip 因 RECORD 指向 venv 外而无法卸载）
+#   .version() 只返回扫到的第一个，重复分发时按目录/路径顺序命中旧版本 →
+#   把「已经装成功的新版本」误判成「版本未变化」。所以统一取**最高版本**。
+# 同一坑还会污染 pip 自己的 "Successfully installed" 汇总行（pip 是回扫环境按包名
+# 建 map、同名后者覆盖前者），所以那行显示的版本号不能当升级是否成功的证据。
+# ⚠️ 本常量会被嵌进升级脚本的 bash 单引号串里，内部只能用双引号，不能出现单引号。
+KERNEL_VERSION_SCAN = (
+    "\n"
+    "import importlib.metadata as m\n"
+    "def _k(s):\n"
+    "    return [(0, int(p)) if p.isdigit() else (1, p) for p in s.split(\".\")]\n"
+    "try:\n"
+    "    vs = []\n"
+    "    for d in m.distributions():\n"
+    "        try:\n"
+    "            if (d.metadata.get(\"Name\") or \"\").lower() == \"qwenpaw\":\n"
+    "                vs.append(d.version)\n"
+    "        except Exception:\n"
+    "            pass\n"
+    "    v = max(vs, key=_k) if vs else \"\"\n"
+    "except Exception:\n"
+    "    v = \"\"\n"
+    "print(v)\n"
+)
+
+
+def version_key(v: str):
+    """版本排序键：数字段按数值比、非数字段按字符串（与 KERNEL_VERSION_SCAN 里的 _k 同款）
+
+    模块级函数（不放类里）：内核升级、PyPI 版本比对、fpk 版本比对三处共用，
+    避免"两套比较逻辑各写一份"再次跑偏。
+    """
+    return [(0, int(seg)) if seg.isdigit() else (1, seg)
+            for seg in re.split(r"[._+-]", str(v))]
 
 if hasattr(socketserver, "UnixStreamServer"):
     BaseUnixServer = socketserver.UnixStreamServer
@@ -101,6 +145,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         self._proxy_thread = None
         self._update_cache = None
         self._update_cache_ts = 0.0
+        self._manifest_version_cache = ""
 
         if os.path.exists(socket_path):
             try:
@@ -228,30 +273,11 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         venv_python = os.path.join(self.cfg.get("venv", ""), "bin", "python3")
         if os.path.exists(venv_python):
             try:
-                # 不用 m.version('qwenpaw')：旧 editable 安装的 dist-info 残留时
-                # （RECORD 指向 venv 外 pip 卸不掉），多版本并存而 importlib 按
-                # 目录扫描顺序取第一个，可能读到旧版本（26.8.71 实测显示 2.2.0
-                # 而内核实际 2.2.1）。取全部 qwenpaw dist-info 的最高版本，
-                # 与升级脚本「保留最高版 dist-info」的清理逻辑保持一致。
-                code = (
-                    "import importlib.metadata as m\n"
-                    "def _k(s):\n"
-                    "    return [(0,int(p)) if p.isdigit() else (1,p) for p in s.split('.')]\n"
-                    "try:\n"
-                    "    vs=[]\n"
-                    "    for d in m.distributions():\n"
-                    "        try:\n"
-                    "            if (d.metadata.get('Name') or '').lower()=='qwenpaw':\n"
-                    "                vs.append(d.version)\n"
-                    "        except Exception:\n"
-                    "            pass\n"
-                    "    v=max(vs,key=_k) if vs else ''\n"
-                    "except Exception:\n"
-                    "    v=''\n"
-                    "print(v)"
-                )
+                # 不用 m.version('qwenpaw')：多版本元数据并存时会读到旧版本
+                # （26.8.71 实测显示 2.2.0 而内核实际 2.2.1）。统一走
+                # KERNEL_VERSION_SCAN（取最高版本），与升级校验同口径。
                 result = subprocess.run(
-                    [venv_python, "-c", code],
+                    [venv_python, "-c", KERNEL_VERSION_SCAN],
                     capture_output=True, text=True, timeout=15,
                 )
                 version = result.stdout.strip() or "未知"
@@ -263,8 +289,12 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         return version
 
     def auth_enabled(self) -> bool:
-        """认证是否启用（与 cmd/common 的 QWENPAW_AUTH_ENABLED 保持一致）"""
-        raw = os.environ.get("QWENPAW_AUTH_ENABLED", "true")
+        """内核认证是否启用（与 cmd/common 顶部的 QWENPAW_AUTH_ENABLED 一致）。
+
+        QW-022：兜底值必须是 false——cmd/common 按设计导出 false（或未导出），
+        此前的 "true" 兜底会让控制台「服务信息」把免密态误报成「已启用/安全」。
+        """
+        raw = os.environ.get("QWENPAW_AUTH_ENABLED", "false")
         return raw.strip().lower() in ("true", "1", "yes", "on")
 
     def working_dir(self) -> str:
@@ -685,22 +715,38 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
         env_home = os.environ.get("HOME", data_dir)
         working_dir = os.environ.get("QWENPAW_WORKING_DIR", os.path.join(data_dir, ".qwenpaw"))
-        auth_enabled = os.environ.get("QWENPAW_AUTH_ENABLED", "true")
-        auth_user = os.environ.get("QWENPAW_AUTH_USERNAME", "admin")
-        auth_pass = os.environ.get("QWENPAW_AUTH_PASSWORD", "admin")
+        # QW-022（26.8.71 用户实测「手机 App 打开应用弹 QwenPaw 登录页」根因）：
+        # 这里曾硬编码 ``.get(..., "true")`` 兜底并在缺失时回落到 admin/admin，
+        # 而 fngateway 由 cmd/common 拉起、cmd/common 只做 unset 不导出，于是
+        # 每走「控制台启动/重启」或「应用更新」这条路，内核都被显式注入
+        # QWENPAW_AUTH_ENABLED=true + admin/admin —— 内核认证被重新打开。
+        # 网关路径因 _patch_auth_status 改写 enabled 仍显免密（所以只在这条路上
+        # 看不出问题），但手机 App / 桌面图标按 port 直连内核端口时不经过网关，
+        # auth/status 原样返回 enabled:true → 弹登录页。
+        # 现与设计对齐：环境里没有该开关就不注入（=认证关闭）；需要内核级认证时
+        # 在 cmd/common 顶部导出，此处原样透传。
+        auth_enabled = os.environ.get("QWENPAW_AUTH_ENABLED", "").strip()
+        auth_user = os.environ.get("QWENPAW_AUTH_USERNAME", "").strip()
+        auth_pass = os.environ.get("QWENPAW_AUTH_PASSWORD", "").strip()
         node_path = os.environ.get("PATH", "")
 
         # exec：bash 以内核进程自替换，pid 文件记录的就是内核 pid，
         # 停止时 kill 该 pid 即直接命中内核（对齐 com.dustinky.qwenpaw 的行为），
         # 避免"杀掉 bash 留下内核孤儿/内核优雅关闭期间误判"的歧义
+        exports = [
+            f"export HOME={env_home}",
+            f"export QWENPAW_WORKING_DIR={working_dir}",
+        ]
+        if auth_enabled:
+            exports.append(f"export QWENPAW_AUTH_ENABLED={auth_enabled}")
+            if auth_user:
+                exports.append(f"export QWENPAW_AUTH_USERNAME={auth_user}")
+            if auth_pass:
+                exports.append(f"export QWENPAW_AUTH_PASSWORD={auth_pass}")
+        exports.append(f"export PATH={node_path}")
         cmd = (
-            f"export HOME={env_home} && "
-            f"export QWENPAW_WORKING_DIR={working_dir} && "
-            f"export QWENPAW_AUTH_ENABLED={auth_enabled} && "
-            f"export QWENPAW_AUTH_USERNAME={auth_user} && "
-            f"export QWENPAW_AUTH_PASSWORD={auth_pass} && "
-            f"export PATH={node_path} && "
-            f"exec {venv_python} -m qwenpaw app --host 0.0.0.0 --port {port}"
+            " && ".join(exports)
+            + f" && exec {venv_python} -m qwenpaw app --host 0.0.0.0 --port {port}"
         )
         proxy_env = self.proxy_env()
         if proxy_env:
@@ -822,8 +868,27 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
     # ---------------- 版本升级 ----------------
 
     def manifest_version(self) -> str:
-        """当前安装包版本（与 manifest 同步的常量）"""
-        return APP_VERSION
+        """当前安装包（fpk）版本：优先读与本文件同目录的 manifest，读不到才回落 APP_VERSION
+
+        此前只返回硬编码常量，改版本号时容易漏改——实测已漂移到 26.8.56 而包实际是
+        26.8.71，导致控制台「应用框架版本」显示错误，且与 GitHub Releases 的比对一直
+        误报「框架有新版」。改为随包自动读取（结果进程内缓存）。
+        """
+        if self._manifest_version_cache:
+            return self._manifest_version_cache
+        ver = ""
+        try:
+            mf = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest")
+            with open(mf, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    m = re.match(r"\s*version\s*=\s*(\S+)", line)
+                    if m:
+                        ver = m.group(1).strip()
+                        break
+        except Exception as e:
+            logger.debug("读取 manifest 版本失败: %s" % e)
+        self._manifest_version_cache = ver or APP_VERSION
+        return self._manifest_version_cache
 
     def _build_update_opener(self):
         """按网关 network_proxy 配置构造 urllib opener（GitHub 访问常需代理）"""
@@ -842,8 +907,14 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             handler = urllib.request.ProxyHandler({})
         return urllib.request.build_opener(handler)
 
-    def _pypi_latest(self):
-        """查询 PyPI 上 qwenpaw 内核最新版本（失败返回 None，不抛异常）"""
+    def _pypi_latest(self, stable_only: bool = True):
+        """查询 PyPI 上 qwenpaw 内核最新版本（失败返回 None，不抛异常）
+
+        stable_only：优先返回最新**正式版**。PyPI 的 info.version 语义是「最近一次
+        上传的版本」，预发布（2.2.1b2 之类）也会算进去，而 pip 不带 --pre 不会安装
+        预发布——直接用它就会出现「检查更新说有新版、点升级却装不上」的假更新。
+        故改为在 releases 里挑最高正式版；一个正式版都没有时回落 info.version。
+        """
         try:
             import urllib.request
             req = urllib.request.Request(
@@ -852,11 +923,31 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             )
             with self._build_update_opener().open(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8", "replace"))
-            version = str((data.get("info") or {}).get("version") or "").strip()
-            return version or None
+            raw = str((data.get("info") or {}).get("version") or "").strip()
+            if not stable_only:
+                return raw or None
+            finals = []
+            for v, files in (data.get("releases") or {}).items():
+                if not self._is_final_version(v):
+                    continue
+                if files and all(f.get("yanked") for f in files):
+                    continue                      # 全部文件被撤下的版本不算
+                finals.append(v)
+            if finals:
+                return max(finals, key=self._ver_key)
+            return raw or None
         except Exception as e:
             logger.warning("查询 PyPI 内核最新版本失败: %s" % e)
             return None
+
+    @staticmethod
+    def _is_final_version(v: str) -> bool:
+        """正式版判定：排除 a/b/rc/dev/post 等预发布与本地构建标记
+
+        宽松即可（只用于「挑选展示/升级目标」）：版本串里出现字母即视为非正式版。
+        """
+        base = str(v).split("+")[0].strip()
+        return bool(base) and not re.search(r"[A-Za-z]", base)
 
     def check_update(self, force: bool = False) -> dict:
         """GET /api/check_update：双层版本检查（带缓存与失败降级）
@@ -946,11 +1037,14 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         return result
 
     @staticmethod
+    def _ver_key(v: str):
+        """版本排序键（见模块级 version_key；保留此名兼容既有调用）"""
+        return version_key(v)
+
+    @staticmethod
     def _version_gt(a: str, b: str) -> bool:
-        """'26.8.31' > '26.8.28'（忽略非数字段）"""
-        def parts(v):
-            return [int(seg) if seg.isdigit() else 0 for seg in re.split(r"[._-]", v)]
-        return parts(a) > parts(b)
+        """'26.8.31' > '26.8.28'（数字段按数值比较）"""
+        return version_key(a) > version_key(b)
 
     # ---------------- 内核直接升级（参考 com.dustinky.qwenpaw 控制台升级模块） ----------------
 
@@ -1043,7 +1137,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
     def _build_upgrade_script(self, venv_python: str, pid_file: str, log_file: str,
                               up_log: str, up_pid: str, up_result: str, start_cmd: str,
-                              old_ver: str = "") -> str:
+                              old_ver: str = "", target_ver: str = "") -> str:
         """构造后台升级脚本：pip 升级内核（服务保持运行）-> 成功才停止并重启（自包含，页面关闭也不中断）。
 
         全流程都在脚本里、HTTP 请求立即返回（对齐 com.dustinky.qwenpaw：升级请求只负责
@@ -1108,8 +1202,15 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         pip_env = self.proxy_env()
         if pip_env:
             pip_env += " && "
-        pip_cmd = ("PYTHONUNBUFFERED=1 %s\"%s\" -m pip install --upgrade --no-input qwenpaw %s"
-                   % (pip_env, venv_python, self._pip_mirror_args()))
+        # 钉住目标版本：不钉的话 pip 会自行解析到安装源上的"最新版"，源滞后时就
+        # 静默装回当前版本（退出码 0、无任何报错），"点了升级却什么都没发生"。
+        # 钉住后要么装到目标版本，要么明确报 No matching distribution 让用户看到。
+        # target_ver 会拼进 bash 命令，先过一遍白名单校验防注入；不合法则退化为不钉版本。
+        req = "qwenpaw"
+        if target_ver and re.fullmatch(r"[0-9][0-9A-Za-z.+-]*", target_ver):
+            req = "qwenpaw==" + target_ver
+        pip_cmd = ("PYTHONUNBUFFERED=1 %s\"%s\" -m pip install --upgrade --no-input %s %s"
+                   % (pip_env, venv_python, req, self._pip_mirror_args()))
         s += 'echo "[1/3] 正在升级 QwenPaw 内核（服务保持运行）..." >> "' + up_log + '"\n'
         s += 'echo "$ ' + pip_cmd.replace('"', '') + '" >> "' + up_log + '"\n'
         s += pip_cmd + ' >> "' + up_log + '" 2>&1\n'
@@ -1123,47 +1224,31 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         s += '  rm -f "' + up_pid + '"\n'
         s += '  exit 0\n'
         s += 'fi\n'
-        s += 'echo "=== 内核升级成功 ===" >> "' + up_log + '"\n'
         s += 'echo "" >> "' + up_log + '"\n'
 
-        # --- 1.5) 校验内核版本真的变了（镜像滞后假成功防御） ---
-        # 版本预检走官方 PyPI，pip 下载走向导镜像（缺省清华源）。镜像同步滞后时
-        # pip 报 "Requirement already satisfied" 并返回 0——此前直接当作升级成功
-        # 去停服重启，结果内核还是旧版本且全程无任何报错。现在对比安装前后版本：
-        # 未变化则不重启（服务零扰动），rc=4 明确告知镜像未同步。
-        s += ('new_ver=$("%s" -c "import importlib.metadata as m; '
-              "print(m.version('qwenpaw'))\" 2>/dev/null)\n" % venv_python)
+        # --- 1.5) 校验内核版本真的变了（假成功防御） ---
+        # 三种"看似成功实则没升级"的情形都要挡住，且不重启（服务零扰动）：
+        #   a) 所选安装源尚未同步新版本，pip 解析到的还是当前版本；
+        #   b) 环境里存在同名旧元数据，版本读取被劫持（见 KERNEL_VERSION_SCAN 注释）；
+        #   c) pip 输出 "Successfully installed <旧版本>" —— 那行是回扫环境按名
+        #      覆盖的结果，重复分发时显示旧版本号，**不能**据此判断升级失败。
+        # 因此统一用 KERNEL_VERSION_SCAN（取全部 qwenpaw 分发的最高版本）读版本。
+        s += ('new_ver=$("%s" -c \'' % venv_python) + KERNEL_VERSION_SCAN + '\' 2>/dev/null)\n'
         if old_ver:
-            # 残留 dist-info 防御：旧 editable 安装（pip install -e server）的元数据
-            # RECORD 指向 venv 外，pip 升级时只报 "Can't uninstall" 跳过，旧版本
-            # dist-info 与新版本并存——importlib.metadata 可能读到旧版本，把成功的
-            # 升级误判为「版本未变化」（26.8.71 实测：实际装了 2.2.1 却读出 2.2.0）。
-            # 处理：版本未变化时清理多版本 dist-info（保留最高版本）后复检一次。
-            s += 'if [ "$new_ver" = "' + old_ver + '" ]; then\n'
-            s += ('  sp=$("%s" -c "import sysconfig; '
-                  "print(sysconfig.get_paths()['purelib'])\" 2>/dev/null)\n" % venv_python)
-            s += '  keep=$(ls -d "$sp"/qwenpaw-*.dist-info 2>/dev/null | sort -V | tail -n 1)\n'
-            s += '  for d in "$sp"/qwenpaw-*.dist-info; do\n'
-            s += '    [ -e "$d" ] || continue\n'
-            s += '    if [ "$d" != "$keep" ]; then\n'
-            s += ('      echo "  清理残留 dist-info：$(basename "$d")'
-                  '（旧 editable 元数据，pip 无法卸载且干扰版本读取）" >> "' + up_log + '"\n')
-            s += '      rm -rf "$d"\n'
-            s += '    fi\n'
-            s += '  done\n'
-            s += ('  new_ver=$("%s" -c "import importlib.metadata as m; '
-                  "print(m.version('qwenpaw'))\" 2>/dev/null)\n" % venv_python)
-            s += 'fi\n'
             s += 'if [ "$new_ver" = "' + old_ver + '" ]; then\n'
             s += ('  echo "=== pip 退出码为 0 但内核版本未变化（仍为 v' + old_ver +
-                  '）：所选 PyPI 镜像尚未同步新版本，服务未重启 ===" >> "' + up_log + '"\n')
-            s += '  echo "  可稍后重试，或在应用设置的「PyPI 安装源」中改为官方源" >> "' + up_log + '"\n'
-            s += '  ' + script_banner("内核升级中止：镜像尚未同步新版本（仍为 v" + old_ver + "），服务未重启")
+                  '），服务未重启 ===" >> "' + up_log + '"\n')
+            s += ('  echo "  可能原因：所选 PyPI 安装源尚未同步新版本（可在应用设置改用官方源），'
+                  '或上游确无更新" >> "' + up_log + '"\n')
+            s += ('  echo "  提示：pip 输出的 Successfully installed 版本号来自环境回扫，'
+                  '存在同名旧分发包时会显示旧版本，不作为判断依据" >> "' + up_log + '"\n')
+            s += '  ' + script_banner("内核升级中止：版本未变化（仍为 v" + old_ver + "），服务未重启")
             s += '  echo 4 > "' + up_result + '"\n'
             s += '  rm -f "' + up_pid + '"\n'
             s += '  exit 0\n'
             s += 'fi\n'
         s += 'echo "  内核版本：v' + (old_ver or "未知") + ' -> ${new_ver:-未知}" >> "' + up_log + '"\n'
+        s += 'echo "=== 内核升级成功 ===" >> "' + up_log + '"\n'
         s += 'echo "" >> "' + up_log + '"\n'
 
         # --- 2) 停止服务（pip 成功后才执行，等内核真正退出 + 端口释放校验） ---
@@ -1292,7 +1377,7 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             # （pip 在前、服务保持运行，成功才重启），这里只负责派发。
             script = self._build_upgrade_script(
                 venv_python, pid_file, log_file, up_log, up_pid, up_result, start_cmd,
-                old_ver=runtime_version,
+                old_ver=runtime_version, target_ver=latest or "",
             )
             # 脚本落盘为文件执行：避免 bash -c 整段脚本作为 cmdline、内嵌内核
             # 启动命令特征被 _kill_orphan_kernels 误判为孤儿内核而误杀
@@ -1992,8 +2077,9 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                     # 控制台「登录认证」开关 qw_auth_required=true 时透传不改写
                     # （网关访问也需账号密码），默认 false = 免密。
                     # 安全性：仅网关路径生效；内核 API 对回环来源本就白名单豁免
-                    # （security.allow_no_auth_hosts 默认含 127.0.0.1，且直连
-                    # 对端必须回环），局域网直连内核端口仍强制 Bearer 鉴权。
+                    # （security.allow_no_auth_hosts 默认含 127.0.0.1）。注：26.8.70
+                    # 起内核认证本身也已整体关闭（见 cmd/common 顶部 QW-022），
+                    # 此改写现在是双保险兼「网关信任模式」语义表达。
                     payload = self._patch_auth_status(payload)
                 out.append("Content-Length: %d" % len(payload))
                 out.append("Connection: close")

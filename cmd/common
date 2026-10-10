@@ -19,13 +19,20 @@ QWENPAW_PORT="${qwenpaw_webui_port}"
 export HOME="${TRIM_PKGVAR}/data"
 export PYTHONPATH="${QWENPAW_SRC}:${PYTHONPATH}"
 export PIP_CACHE_DIR="${TRIM_PKGVAR}/.pip_cache"
-# 登录认证：不再向内核导出 QWENPAW_AUTH_ENABLED / QWENPAW_AUTH_USERNAME /
-# QWENPAW_AUTH_PASSWORD——内核 is_auth_enabled() 只认环境变量，不导出即认证
-# 整体关闭（auth/status 天然 enabled:false），经飞牛网关与局域网/桌面客户端
-# 直连均免密；向导也已移除账号密码创建窗口。历史安装向导配置里残留的账号
-# 值由此被显式忽略（否则老配置会把认证又打开，桌面客户端直连会被拦登录）。
-# 如确需内核级认证：手动恢复上行三个环境变量导出（值可自定），重启服务即可。
-unset QWENPAW_AUTH_ENABLED QWENPAW_AUTH_USERNAME QWENPAW_AUTH_PASSWORD 2>/dev/null || true
+# 登录认证：内核认证整体关闭（26.8.70 起向导已移除账号密码创建窗口，
+# 内核侧无凭据可用）。经飞牛网关、局域网与桌面/手机客户端直连均免密。
+#
+# ⚠️ QW-022（26.8.71 用户实测「手机 App 打开应用弹 QwenPaw 登录页」根因）：
+# 这里**不能只 unset**，必须显式 export false。内核侧有三个载体能偷偷把认证
+# 重新打开，且它们全部是 override=False 语义（进程环境里已存在的键优先级最高）：
+#   1) SECRET_DIR/envs.json —— 启动时 load_envs_into_environ() 注入 os.environ；
+#   2) ${QWENPAW_WORKING_DIR}/.env —— constant.py 导入期 load_dotenv；
+#   3) ${QWENPAW_SRC}/.env —— 同上。
+# unset 会让出位置，残留值随即生效（auth/status 变 enabled:true → 直连端口弹登录页）；
+# 显式 export false 反而把这三位全部压住（它们都不覆盖已存在的键）。
+# 仅 QWENPAW_AUTH_USERNAME / PASSWORD 保持 unset（无凭据语义）。
+export QWENPAW_AUTH_ENABLED=false
+unset QWENPAW_AUTH_USERNAME QWENPAW_AUTH_PASSWORD 2>/dev/null || true
 
 # 工作目录显式化（对齐商店版 com.dustinky.qwenpaw 的做法）：
 # 内核（-m qwenpaw app）默认用 $HOME/.qwenpaw，fngateway 回退到 data_dir/.qwenpaw，
@@ -308,6 +315,9 @@ QW018
 
     # 启动QwenPaw服务
     log_msg "启动 ${APP_NAME}，端口: ${QWENPAW_PORT}"
+    # QW-022：拉内核前清一次认证开关残留（envs.json / .env），避免残留把
+    # auth/status 顶回 enabled:true → 手机 App / 桌面图标直连端口弹登录页
+    purge_stale_auth_env
     nohup "${python}" -m qwenpaw app --host 0.0.0.0 --port ${QWENPAW_PORT} \
         >> "${LOG_FILE}" 2>&1 &
     local app_pid=$!
@@ -395,6 +405,78 @@ clean_orphan_kernel() {
     fi
 }
 
+# QW-020 自愈断言：捆绑源码 pyproject 的 reme-ai pin 可能滞后于运行版 qwenpaw
+# 的硬需求（editable 安装会静默降级 reme-ai → memory manager 集体拒启，
+# 2026-09-12 实录：直升 2.2.1+0.4.1.11 后被 fpk 安装流降回 0.4.1.10）。
+# 权威源＝已安装 qwenpaw 包内的 _REQUIRED_REME_VERSION 常量；不匹配则强制对齐。
+_assert_reme_ai_aligned() {
+    local _req _now _pip="${QWENPAW_VENV}/bin/pip"
+    _req="$("${QWENPAW_VENV}/bin/python3" -c \
+        'from qwenpaw.agents.memory.reme_light_memory_manager import _REQUIRED_REME_VERSION as r; print(r)' 2>/dev/null)"
+    [ -z "${_req}" ] && return 0   # 旧版包无此常量：静默跳过，绝不阻断启动
+    _now="$("${_pip}" show reme-ai 2>/dev/null | awk '/^Version:/{print $2}')"
+    if [ "${_now}" != "${_req}" ]; then
+        log_msg "QW-020 对齐: reme-ai ${_now:-缺失} -> ${_req}"
+        "${_pip}" install --default-timeout=30 --retries 3 "reme-ai==${_req}" \
+            >> "${LOG_FILE}" 2>&1 \
+            || err_msg "QW-020 reme-ai 对齐失败，memory manager 可能拒启，需人工介入"
+    fi
+}
+
+# QW-022 残留清理（治本，配合文件顶部的 export false）：
+# 内核侧三个认证开关载体里遗留在盘上的 true 值会让「想开认证」的人被反噬
+# （改了顶部 export 仍被旧值压回），控制台「服务信息」的认证状态也会与实际
+# 不符，故启动时顺手清一次。只动 QWENPAW_AUTH_ENABLED / COPAW_AUTH_ENABLED
+# 两个键，其余变量（含用户名/密码）一律不碰。全程 best-effort，绝不阻断启动。
+purge_stale_auth_env() {
+    local _python="${QWENPAW_VENV}/bin/python3" _out
+    [ -x "${_python}" ] || return 0
+    _out="$("${_python}" - <<'QW022' 2>/dev/null
+import os
+from pathlib import Path
+
+KEYS = ("QWENPAW_AUTH_ENABLED", "COPAW_AUTH_ENABLED")
+TRUTHY = ("true", "1", "yes", "on")
+hits = []
+
+# 载体 1：envs.json —— 内核启动时 load_envs_into_environ() 注入 os.environ，
+# 且 inject 用 overwrite=False，进程环境里没有该键时会被它悄悄打开认证。
+try:
+    from qwenpaw.envs import delete_env_var, load_envs
+
+    stored = load_envs()
+    for key in KEYS:
+        if str(stored.get(key, "")).strip().lower() in TRUTHY:
+            delete_env_var(key)
+            hits.append("envs.json:" + key)
+except Exception:
+    pass  # 旧版无 envs 模块 / 存储不可读：静默跳过
+
+# 载体 2/3：.env 文件——constant.py 导入期 load_dotenv（override=False）。
+# 只报告不改用户文件（顶部 export false 已足以压住它们）。
+try:
+    from qwenpaw.constant import WORKING_DIR
+
+    cands = [Path(WORKING_DIR) / ".env", Path(os.environ.get("QWENPAW_SRC", "")) / ".env"]
+    for path in cands:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for line in text.splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() in KEYS and value.strip().strip('"').lower() in TRUTHY:
+                hits.append(str(path) + ":" + key.strip())
+except Exception:
+    pass
+
+if hits:
+    print("QW-022 已清除残留认证开关 -> " + "，".join(hits))
+QW022
+)"
+    [ -n "${_out}" ] && log_msg "$(printf '%s' "${_out}" | tr '\n' ' ')"
+    return 0
+}
+
 # 安装前初始化
 install_init() {
     log_msg "执行安装前的准备工作..."
@@ -478,6 +560,7 @@ install_callback() {
         return 1
     fi
     log_msg "依赖安装完成"
+    _assert_reme_ai_aligned   # QW-020：防止 pyproject 旧 pin 静默降级 reme-ai
 
     # 恢复系统默认 umask：此后 init 生成的 config.json / .qwenpaw.secret 等
     # 密钥文件不再继承 022（venv 与 pip 产物已在此前以 755/644 固化）
@@ -559,7 +642,7 @@ upgrade_callback() {
     clean_orphan_kernel
     "${QWENPAW_VENV}/bin/pip" install --default-timeout=30 --retries 3 -e "${QWENPAW_SRC}" \
         >> "${LOG_FILE}" 2>&1 \
-        && log_msg "依赖同步完成" \
+        && { log_msg "依赖同步完成"; _assert_reme_ai_aligned; } \
         || log_msg "依赖同步失败（服务仍可尝试启动），请查看日志"
 
     # 权属治理（对齐商店版）
