@@ -66,11 +66,18 @@ LOG_RETENTION_DAYS = 180
 # 应用安装包版本的**兜底常量**：正常运行时不使用——manifest_version() 会直接读与
 # fngateway.py 同目录的 manifest（随包自动同步）。仅当 manifest 读不到时用作回落，
 # 以及作为 HTTP User-Agent 标识。建议每次改 manifest 时一并更新，避免兜底值失真。
-APP_VERSION = "26.8.74"
+APP_VERSION = "1.1.1"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
-# 应用框架更新检查（GitHub Releases，QwenPaw-FNOS 分发仓库）
-UPDATE_CHECK_URL = "https://api.github.com/repos/yuexps/QwenPaw-FNOS/releases/latest"
+# 应用框架更新检查（GitHub Releases）。
+# 10-15：从分发仓库 yuexps 改指本仓库 SonderSong-sudo——本包由本仓库自行构建，
+# 问 yuexps 的 v26.x 版本线永远问不出有用信息（两条线早已分叉；实测
+# 26.9.11 > 26.8.74 亦为真，长期误报，且 yuexps 最新 release 内含内核仅 2.2.1、
+# 附的是旧包，照提示去装会冲掉本地修复）。
+# ⚠️ 下方实际查询代码目前整段注释停用（见 check_update）。若要放开，必须先把
+#    本仓库的 release 标签改成规范版本号：现存唯一标签是文件名式
+#    `qwenpaw_26.8.74.fpk`，而 version_key 中字母段恒大于数字段，会误判"有新版"。
+UPDATE_CHECK_URL = "https://api.github.com/repos/SonderSong-sudo/QwenPaw-FNOS/releases/latest"
 UPDATE_CHECK_TTL = 600  # 检查结果缓存 10 分钟
 
 # 读取 venv 内 qwenpaw 内核版本的扫描脚本（get_version 与控制台升级脚本共用，
@@ -985,29 +992,33 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             "error": None,
         }
 
-        # 应用框架（fpk）检查：GitHub Releases；失败仅降级为提示
+        # 应用框架（fpk）检查：GitHub Releases。
+        # 10-15 整段停用：本包由本仓库自行构建，外部 release 线不代表本地实际
+        # 内容，问出来的提示只会误导（详见 UPDATE_CHECK_URL 处注释）。内核层
+        # （PyPI）检查不受影响，仍正常工作。恢复方法：取消下面 try/except 整段
+        # 注释，并先按 UPDATE_CHECK_URL 处说明把 release 标签改成规范版本号。
         shell_error = None
-        try:
-            import urllib.request
-            req = urllib.request.Request(
-                UPDATE_CHECK_URL,
-                headers={
-                    "User-Agent": "QwenPaw-FNOS/" + APP_VERSION,
-                    "Accept": "application/vnd.github+json",
-                },
-            )
-            with self._build_update_opener().open(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode("utf-8", "replace"))
-            tag = str(data.get("tag_name") or "").lstrip("v")
-            latest = tag or None
-            result["latest_version"] = latest
-            result["release_url"] = data.get("html_url") or ""
-            result["release_name"] = data.get("name") or tag
-            cur = self.manifest_version()
-            if latest and self._version_gt(latest, cur):
-                result["shell_update_available"] = True
-        except Exception as e:
-            shell_error = str(e)
+        # try:
+        #     import urllib.request
+        #     req = urllib.request.Request(
+        #         UPDATE_CHECK_URL,
+        #         headers={
+        #             "User-Agent": "QwenPaw-FNOS/" + APP_VERSION,
+        #             "Accept": "application/vnd.github+json",
+        #         },
+        #     )
+        #     with self._build_update_opener().open(req, timeout=10) as resp:
+        #         data = json.loads(resp.read().decode("utf-8", "replace"))
+        #     tag = str(data.get("tag_name") or "").lstrip("v")
+        #     latest = tag or None
+        #     result["latest_version"] = latest
+        #     result["release_url"] = data.get("html_url") or ""
+        #     result["release_name"] = data.get("name") or tag
+        #     cur = self.manifest_version()
+        #     if latest and self._version_gt(latest, cur):
+        #         result["shell_update_available"] = True
+        # except Exception as e:
+        #     shell_error = str(e)
 
         # 组装提示文案
         parts = []
@@ -1023,13 +1034,15 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             )
         else:
             parts.append("QwenPaw 内核已是最新版本（v%s）" % runtime_version)
-        if result["shell_update_available"]:
-            parts.append(
-                "应用框架有新版 v%s（当前 v%s），可在 fnOS 应用中心安装新版 .fpk（数据与配置保留）"
-                % (result["latest_version"], result["current_version"])
-            )
-        elif shell_error:
-            parts.append("应用框架版本检查失败（GitHub 访问异常）")
+        # 框架层提示随上方检查一并停用（这两个分支在检查停用后永远走不到，
+        # 注释掉以免留下"看着能走其实走不到"的死分支）。
+        # if result["shell_update_available"]:
+        #     parts.append(
+        #         "应用框架有新版 v%s（当前 v%s），可在 fnOS 应用中心安装新版 .fpk（数据与配置保留）"
+        #         % (result["latest_version"], result["current_version"])
+        #     )
+        # elif shell_error:
+        #     parts.append("应用框架版本检查失败（GitHub 访问异常）")
         result["message"] = "；".join(parts)
 
         self._update_cache = result
@@ -2084,8 +2097,24 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                     # 起内核认证本身也已整体关闭（见 cmd/common 顶部 QW-022），
                     # 此改写现在是双保险兼「网关信任模式」语义表达。
                     payload = self._patch_auth_status(payload)
+                if status == 200 and upstream.startswith("/assets/") and re.search(
+                        r"-[A-Za-z0-9_-]{8,}\.[A-Za-z0-9]{2,5}(?:\.(?:br|gz))?$",
+                        upstream):
+                    # QW-024：内容寻址资产显式声明永久缓存。此前无任何 Cache-Control，
+                    # 浏览器每次进页面都要给每个 chunk 发条件请求重新验证，几十个请求
+                    # 各走一趟 FN Connect 隧道，是外网 502 风暴的放大器之一。
+                    # 只给 200 加：404 按 RFC 是可缓存的，若一起贴 immutable，
+                    # 升级窗口里一次偶发 404 会被浏览器钉住一年，反而造出"永久加载失败"。
+                    out = [h for h in out if not h.lower().startswith("cache-control:")]
+                    out.append("Cache-Control: public, max-age=31536000, immutable")
                 out.append("Content-Length: %d" % len(payload))
-                out.append("Connection: close")
+                # QW-024：不再无条件写 Connection: close。本 handler 的
+                # protocol_version 已是 HTTP/1.1（见 FnGatewayHandler 定义处），且此处
+                # 必发准确 Content-Length，BaseHTTPRequestHandler 会自行维持 keep-alive；
+                # 浏览器一次导航的几十个 chunk 因此可复用少数几条连接。
+                # 仅对 HTTP/1.0 请求保留关闭语义（1.0 无 keep-alive）。
+                if (self.request_version or "") == "HTTP/1.0":
+                    out.append("Connection: close")
                 self._write_head_raw(out)
                 self.wfile.write(payload)
                 self.wfile.flush()

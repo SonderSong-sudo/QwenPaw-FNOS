@@ -7,6 +7,7 @@ APP_NAME="QwenPaw"
 LOG_FILE="${TRIM_PKGVAR}/info.log"
 GATEWAY_LOG_FILE="${TRIM_PKGVAR}/fngateway.log"
 PID_FILE="${TRIM_PKGVAR}/app.pid"
+PORT_STAMP="${TRIM_PKGVAR}/applied_port"  # 上次成功生效的 WebUI 端口
 
 # 路径
 QWENPAW_VENV="${TRIM_PKGVAR}/venv"  # Python 虚拟环境
@@ -329,6 +330,8 @@ QW018
     sleep 2
     if check_process "${app_pid}"; then
         log_msg "${APP_NAME} 启动成功，PID: ${app_pid}"
+        # 记下本次实际生效的端口，供 config_callback 判断要不要重启
+        echo "${QWENPAW_PORT}" > "${PORT_STAMP}" 2>/dev/null
         return 0
     else
         rm -f "${PID_FILE}"
@@ -664,10 +667,25 @@ config_init() {
 config_callback() {
     log_msg "执行配置回调..."
 
-    # 对齐商店版 com.dustinky.qwenpaw：配置（端口/认证账号密码等）变更后
-    # 停止服务，由 appcenter 自动重启以应用新配置；此前为空实现，
-    # 改配置后不重启会导致新配置一直不生效
-    log_msg "配置已变更，正在停止服务以便应用新配置..."
+    # wizard/config 目前只有一个可改项：qwenpaw_webui_port（WebUI 端口）。
+    # 端口变更必须重启（进程要重新 bind）；但「应用权限」里新增可访问
+    # 文件夹也会走到这里，而它由文件系统 ACL 即时执法、内核并不读取相关
+    # 环境变量，重启毫无收益，反而造成约 2 分钟不可用。
+    # 故：只在端口真的变了才停服，其余变更直接返回。
+    # （旧注释提到的"认证账号密码"属商店版 com.dustinky.qwenpaw 的向导，
+    #   本包 wizard/config 里没有这些字段。）
+    local new_port="${qwenpaw_webui_port:-2277}"
+    local old_port=""
+    if [ -f "${PORT_STAMP}" ]; then
+        old_port=$(cat "${PORT_STAMP}" 2>/dev/null)
+    fi
+
+    if [ -n "${old_port}" ] && [ "${new_port}" = "${old_port}" ]; then
+        log_msg "端口未变更（${new_port}），无需重启"
+        return 0
+    fi
+
+    log_msg "端口 ${old_port:-<未记录>} -> ${new_port}，停止服务以重新监听"
     stop_process
     log_msg "配置已更新，服务将自动重启"
     return 0
