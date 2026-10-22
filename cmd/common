@@ -23,7 +23,14 @@ export PIP_CACHE_DIR="${TRIM_PKGVAR}/.pip_cache"
 # 登录认证：内核认证整体关闭（26.8.70 起向导已移除账号密码创建窗口，
 # 内核侧无凭据可用）。经飞牛网关、局域网与桌面/手机客户端直连均免密。
 #
-# ⚠️ QW-022（26.8.71 用户实测「手机 App 打开应用弹 QwenPaw 登录页」根因）：
+# ⚠️ QW-022 / 1.1.2 变更说明（繁荼 10-21 定：开认证以启用控制台「终端」）：
+# 本行现固定 export **true**——认证开启后，控制台终端可用；副作用是飞牛统一网关直连端口
+# 也会弹登录页（QW-022 当年要治的正是这个）。要再关掉：改回 export false 重打包，
+# 或 sudo 改 /var/apps/qwenpaw_yuexps/cmd/common 后重启（下次装包会被本仓库覆盖）。
+# 凭据仍不入库：用户名/密码由使用者在控制台「环境变量」里给 envs.json，
+# 内核启动时 auto_register_from_env() 会读它建号（已有用户则跳过）。
+#
+# 原 QW-022 背景（26.8.71 用户实测「手机 App 打开应用弹 QwenPaw 登录页」根因）：
 # 这里**不能只 unset**，必须显式 export false。内核侧有三个载体能偷偷把认证
 # 重新打开，且它们全部是 override=False 语义（进程环境里已存在的键优先级最高）：
 #   1) SECRET_DIR/envs.json —— 启动时 load_envs_into_environ() 注入 os.environ；
@@ -32,7 +39,7 @@ export PIP_CACHE_DIR="${TRIM_PKGVAR}/.pip_cache"
 # unset 会让出位置，残留值随即生效（auth/status 变 enabled:true → 直连端口弹登录页）；
 # 显式 export false 反而把这三位全部压住（它们都不覆盖已存在的键）。
 # 仅 QWENPAW_AUTH_USERNAME / PASSWORD 保持 unset（无凭据语义）。
-export QWENPAW_AUTH_ENABLED=false
+export QWENPAW_AUTH_ENABLED=true
 unset QWENPAW_AUTH_USERNAME QWENPAW_AUTH_PASSWORD 2>/dev/null || true
 
 # 工作目录显式化（对齐商店版 com.dustinky.qwenpaw 的做法）：
@@ -426,11 +433,9 @@ _assert_reme_ai_aligned() {
     fi
 }
 
-# QW-022 残留清理（治本，配合文件顶部的 export false）：
-# 内核侧三个认证开关载体里遗留在盘上的 true 值会让「想开认证」的人被反噬
-# （改了顶部 export 仍被旧值压回），控制台「服务信息」的认证状态也会与实际
-# 不符，故启动时顺手清一次。只动 QWENPAW_AUTH_ENABLED / COPAW_AUTH_ENABLED
-# 两个键，其余变量（含用户名/密码）一律不碰。全程 best-effort，绝不阻断启动。
+# QW-022 残留清理（1.1.2 起**收窄**）：只清 COPAW_AUTH_ENABLED，不再清 QWENPAW_AUTH_ENABLED——
+# 因为 1.1.2 起本包默认开认证，再把盘上的 QWENPAW 开关删掉会误伤使用者。
+# 其余变量（含用户名/密码）一律不碰。全程 best-effort，绝不阻断启动。
 purge_stale_auth_env() {
     local _python="${QWENPAW_VENV}/bin/python3" _out
     [ -x "${_python}" ] || return 0
@@ -438,7 +443,7 @@ purge_stale_auth_env() {
 import os
 from pathlib import Path
 
-KEYS = ("QWENPAW_AUTH_ENABLED", "COPAW_AUTH_ENABLED")
+KEYS = ("COPAW_AUTH_ENABLED",)  # 1.1.2 收窄：不再清 QWENPAW_AUTH_ENABLED
 TRUTHY = ("true", "1", "yes", "on")
 hits = []
 

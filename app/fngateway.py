@@ -66,7 +66,7 @@ LOG_RETENTION_DAYS = 180
 # 应用安装包版本的**兜底常量**：正常运行时不使用——manifest_version() 会直接读与
 # fngateway.py 同目录的 manifest（随包自动同步）。仅当 manifest 读不到时用作回落，
 # 以及作为 HTTP User-Agent 标识。建议每次改 manifest 时一并更新，避免兜底值失真。
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.3"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
 # 应用框架更新检查（GitHub Releases）。
@@ -121,6 +121,16 @@ def version_key(v: str):
     """
     return [(0, int(seg)) if seg.isdigit() else (1, seg)
             for seg in re.split(r"[._+-]", str(v))]
+
+
+# 预发布/开发版标记（PEP 440）：alpha/a、beta/b、c/rc、pre/preview、dev。
+# 刻意**不含** post/rev/r —— post 修订（如 2.2.2.post1）是正式发布，pip 不带
+# --pre 就能安装，不能当预发布挡掉（10-22 实测：挡掉后检查更新永远停在 2.2.2，
+# 上游发 post 版本时误报「已是最新版」）。
+# (?<![A-Za-z]) 防误伤普通单词里的字母；(?:\d|$) 要求标记后跟数字或结尾——
+# 预发布标记常紧贴数字（2.2.1b2、2.2.1rc1），不带号的 1.0a / 2.2.1rc 也要能命中。
+_PRE_RELEASE_RE = re.compile(
+    r"(?i)(?<![A-Za-z])(?:alpha|beta|preview|a|b|c|rc|pre|dev)(?:\d|$)")
 
 if hasattr(socketserver, "UnixStreamServer"):
     BaseUnixServer = socketserver.UnixStreamServer
@@ -949,12 +959,17 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
 
     @staticmethod
     def _is_final_version(v: str) -> bool:
-        """正式版判定：排除 a/b/rc/dev/post 等预发布与本地构建标记
+        """正式版判定（PEP 440 语义）：只挡预发布/开发版，**放行 post 修订**
 
-        宽松即可（只用于「挑选展示/升级目标」）：版本串里出现字母即视为非正式版。
+        - 挡（pip 不带 --pre 装不上，算进来就是「说有新版、点升级装不上」）：
+          2.2.1b2 / 2.2.1.beta2 / 2.2.1rc1 / 1.0a1 / 2.3.0.dev1 / 2.2.2.post1.dev0；
+        - 放行（正式发布，pip 可直装）：2.2.2、2.2.2.post1、2.2.2.post2。
+          旧逻辑「版本串里出现字母即非正式版」把 post1 也挡了，导致检查更新
+          永远停在 2.2.2、误报「已是最新版」（10-22 实测）；
+        - 本地构建标记（+local）先行剥离，不影响判定。
         """
         base = str(v).split("+")[0].strip()
-        return bool(base) and not re.search(r"[A-Za-z]", base)
+        return bool(base) and not _PRE_RELEASE_RE.search(base)
 
     def check_update(self, force: bool = False) -> dict:
         """GET /api/check_update：双层版本检查（带缓存与失败降级）
