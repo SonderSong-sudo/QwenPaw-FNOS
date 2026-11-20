@@ -1,0 +1,205 @@
+{
+  "host_version": "2.3.0",
+  "plugins": [
+    {
+      "descriptor_sha256": "30d0bca0e8ef1995516ddc845732505f25d9fd6068541a64546cfbb540b1220c",
+      "filename": "azure-bot-2.0.0.zip",
+      "plugin_id": "azure-bot",
+      "qwenpaw_version": {
+        "max": "2.4.0",
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "d74c26531b58339a15a7f500749ef0d485b8d5fad683f2563650bce127c7b0fa",
+      "sha256": "69a9d9428875cc6f48d5a8567b737a417cc08a23c736eee1629904de393d3262",
+      "version": "2.0.0"
+    },
+    {
+      "descriptor_sha256": "8102d3c2bbbfe08e7badfb417a5ca6a4d7228f2c7d1412e25b7174a9a34a0dee",
+      "filename": "dingtalk-0.1.0.dev0.zip",
+      "plugin_id": "dingtalk",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "f6c4ce05e2340b19a353f46381f3c4141470f9d040f128d40950a1f03f14eab2",
+      "sha256": "2fb8f756cf67b1cab6c8d6b5a93d8e32e015c985134642c88465c8572e56de27",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "190207c7f614d69f9b854c78ec3095cca9e4dddd2e1a488d9fa262d7580d8ebf",
+      "filename": "discord-0.1.0.dev0.zip",
+      "plugin_id": "discord",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "b605bb70e818718c443fe1dfd0b569c79428737bfe3be671f850a89620e4c7ec",
+      "sha256": "d951b88258694533e85bae3703835235c386cf7c0b11a390e27e95893a8cd6d7",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "8f690cc258086c26faf59bc33641245475c0329ed7c1aacffbc339804f035b71",
+      "filename": "feishu-0.1.0.dev0.zip",
+      "plugin_id": "feishu",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "2ba9beb9db433cb1c1e0e8c141a47d86447fd7b87a906580be482829a1c277dc",
+      "sha256": "2ecca7820275a7e111395f4b1af5e0a4ef34b9797ec6af5dabd213ec5bb21a63",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "6bc76192fae74cfe3b5102c6af875dceadefb5b903ded97fc989f1beaa0a67e4",
+      "filename": "imessage-0.1.0.dev0.zip",
+      "plugin_id": "imessage",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "363f9edbb10a2f01ddd0ff14a0603a1b1c1f1ffc5d09f3d41f3a10305c06cb52",
+      "sha256": "1d3f27ecb42b6c63e2dc5e94a967b9c5f9c733cc74b76d632ebb569e3e367d3d",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "a73ab3204989168c4550c34518c94ec3891a04583cfb97b5fde9eb121edad493",
+      "filename": "matrix-0.1.0.dev0.zip",
+      "plugin_id": "matrix",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "7ea0e19fdfb533dace7d624cf1c4b9e1c843620a28246a88983513ddb8ab9fe9",
+      "sha256": "114e9e321b73d68306a45b8497b47209c0c715de01dc4acec7d13c2609c5f81c",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "53dcbeace3693706d6697eebe56190648967f21c68a50c8961d67bd1ceab910d",
+      "filename": "mattermost-0.1.0.dev0.zip",
+      "plugin_id": "mattermost",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "9a6fe005a81b0e3c58650e15328136aa6b3b109447b4a321ad810831c4366e0a",
+      "sha256": "d2487712ab7e06539c9dc7b680fa78af108f3bd50456deab78f4713897ed2988",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "ab3e900e1528d9670cbaf907215d63ae6159deeaf6c969885eceee0cedc60e93",
+      "filename": "mqtt-0.1.0.dev0.zip",
+      "plugin_id": "mqtt",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "5b656d1b9d571012cce9dd8ac6846c27bd2ae1cd549d7bc96479f075a37e10dc",
+      "sha256": "530c2e73e40cb3a41bff29158e4371e87132cd4ad54a4be319648ec13b61105f",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "248967ad2ca57abd461003647918d691df8d908fbb96b0e4048967ce46484eec",
+      "filename": "onebot-0.1.0.dev0.zip",
+      "plugin_id": "onebot",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "168904d667f4ad498548a82424482698473117bf0089b0261c6c547d68456a5f",
+      "sha256": "a251d724a19b2ca0e584b5bd0b8bc353e91ea88221878175b9d2e3a22529551a",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "c09cf33d5603ceb145f598cdfa5c81f4c36b57782e661e7a42d420b21c5acdf4",
+      "filename": "qq-0.1.0.dev0.zip",
+      "plugin_id": "qq",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "b223e5ccac276620ef7fe4236e5d3d4d6b54586f2b67439e8be11974f6b25f18",
+      "sha256": "fbf4cd181346d7156b695938316bbf33e31a072de6deef73d6bcfc4e73ffafcc",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "08f66f9d8bd26c695bcba6d2815d41140d996c8c5b79e7730f85bad95ec24278",
+      "filename": "sip-0.1.0.dev0.zip",
+      "plugin_id": "sip",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "85fd5bdd24fa559f0df476fd086cd407a08fe5e3ff02aeddd7fe7e2c49e94c65",
+      "sha256": "18416566f9e929e962de3b54adfead9a96665e47d884884397688472e9d46412",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "d896946a7faa3d9ad60275f81a6620e1a7df08f59bac9cbc94620e65102f579a",
+      "filename": "slack-0.1.0.dev0.zip",
+      "plugin_id": "slack",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "86d8e3d9398692e5c40c746638e207a6725821493c153aeebdaf8fa714f31d47",
+      "sha256": "c8938fe0ed6145f0185d8b220d540f62525c323a799384b2d59a5eb737730a02",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "b24c6246f6e2fcfeb3db71a50ff3064eb8981dfc50cd88ce3bd9f342bbeeb45a",
+      "filename": "telegram-0.1.0.dev0.zip",
+      "plugin_id": "telegram",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "b45baeb0cff584e389a2326846a8c0f69505aa7cf0a4843cda2ff73367512a84",
+      "sha256": "ea867fe29cfda62a08060fc319bba9658b951584c3ad30cf1fe2784558e75746",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "39857fca95ab6f3644738b02e2a8ecc4c5e16c4a70d298b6d01cfc8ed512b5f0",
+      "filename": "voice-0.1.0.dev0.zip",
+      "plugin_id": "voice",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "33e5d4113e9b7c2b1b1791074e374d6e2e9d6b4ab197d32516fffe403e6924f4",
+      "sha256": "1255a11a1e581e73060313e116f3572d199ab9031ea8de5d11f92dbb1406c7a2",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "fc1c6ecae53a009726008bc7ba7213b6ee67bc1aee3afab6bba6a3c993296a0a",
+      "filename": "wechat-0.1.0.dev0.zip",
+      "plugin_id": "wechat",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "5641dd4c5e6aec09fb0e23ff842fdac755b0067dd0164b41377c066859161fba",
+      "sha256": "8be1bc3c460d1b96dcd4f6d6cd818b79db932fa11969ac7836f39c0b736c051d",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "c33047df0784aa1fa5e958c9192264f45f624ea648335f83613ef9d0e37f013a",
+      "filename": "wecom-0.1.0.dev0.zip",
+      "plugin_id": "wecom",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "5c61ecd32897d7b944f8716113907343b13ced45a9c09821ed8b23001039a3a2",
+      "sha256": "6a7ea27a52a7d08c7a875534a7a0dfc2d61ca230771f0b968a3908f53defa05c",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "0fb22dad2bcb59556de3f591b618c47b1a1b948568de2c6e2e30da51568fd0ae",
+      "filename": "xiaoyi-0.1.0.dev0.zip",
+      "plugin_id": "xiaoyi",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "bb9348c705fb4bf0f781aad6939f0c24ed86932c71438b8ac68d8ca64a8ebf4d",
+      "sha256": "c59494e19ccf140b8e6689f999a6976e0e2d802cf318b1828e46bef5cb94309b",
+      "version": "0.1.0.dev0"
+    },
+    {
+      "descriptor_sha256": "0928211b99d1f9d8dc875ce791881a3639a7f9d74ca90c79ade50affc24cdd73",
+      "filename": "yuanbao-0.1.0.dev0.zip",
+      "plugin_id": "yuanbao",
+      "qwenpaw_version": {
+        "min": "2.2.2b4"
+      },
+      "requirements_sha256": "d87604bc788562c4fb082f21923a264d851b6852d41f4c730227f20ad4291961",
+      "sha256": "2dd43b359a8eb73b52364b71ebd8df919a5e124558789e739dd9e8ddaaabbeb7",
+      "version": "0.1.0.dev0"
+    }
+  ],
+  "schema_version": 1
+}

@@ -48,6 +48,14 @@ unset QWENPAW_AUTH_USERNAME QWENPAW_AUTH_PASSWORD 2>/dev/null || true
 # 显式 export 后三处（内核 / fngateway / install_callback）钉死同一路径。
 export QWENPAW_WORKING_DIR="${TRIM_PKGVAR}/data/.qwenpaw"
 
+# 内核 2.3.0 起 import qwenpaw 时就要在「<账号home>/.qwenpaw/dependency-environments」
+# 建依赖协调目录，fnOS 应用账号的 /home/<user> 不存在也不可写 → import 即 RuntimeError
+# 拒绝启动（DEPENDENCY_STATE_ROOT_UNAVAILABLE，2026-11-12 实测）。内核只认 passwd home、
+# 不吃 HOME 环境变量，唯一后门就是这个变量（须绝对路径）。钉到工作目录下（必可写）。
+# 注意：框架启动内核走的是本脚本（cmd/main start → start_process），
+# fngateway.build_service_command 里另有同款注入覆盖「网关直升内核」路径，两处都要有。
+export QWENPAW_DEPENDENCY_STATE_DIR="${QWENPAW_WORKING_DIR}/dependency-environments"
+
 # 日志级别（安装向导 qwenpaw_log_level，缺省 info）
 export QWENPAW_LOG_LEVEL="${qwenpaw_log_level:-info}"
 
@@ -560,7 +568,7 @@ install_callback() {
 
     # 安装项目并同步依赖
     log_msg "正在安装项目并同步依赖..."
-    "${pip}" install --default-timeout=30 --retries 3 -e "${QWENPAW_SRC}" \
+    "${pip}" install --default-timeout=30 --retries 3 -e "${QWENPAW_SRC}[channels]" \
         >> "${LOG_FILE}" 2>&1
 
     if [ $? -ne 0 ]; then
@@ -648,7 +656,7 @@ upgrade_callback() {
     fi
     log_msg "同步依赖..."
     clean_orphan_kernel
-    "${QWENPAW_VENV}/bin/pip" install --default-timeout=30 --retries 3 -e "${QWENPAW_SRC}" \
+    "${QWENPAW_VENV}/bin/pip" install --default-timeout=30 --retries 3 -e "${QWENPAW_SRC}[channels]" \
         >> "${LOG_FILE}" 2>&1 \
         && { log_msg "依赖同步完成"; _assert_reme_ai_aligned; } \
         || log_msg "依赖同步失败（服务仍可尝试启动），请查看日志"

@@ -36,6 +36,7 @@ import ssl
 import json
 import time
 import hashlib
+import shlex
 import signal
 import socket
 import logging
@@ -66,7 +67,7 @@ LOG_RETENTION_DAYS = 180
 # 应用安装包版本的**兜底常量**：正常运行时不使用——manifest_version() 会直接读与
 # fngateway.py 同目录的 manifest（随包自动同步）。仅当 manifest 读不到时用作回落，
 # 以及作为 HTTP User-Agent 标识。建议每次改 manifest 时一并更新，避免兜底值失真。
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.1.4"
 # 内核更新检查（PyPI 上游 qwenpaw 包；控制台「应用更新」直升内核的数据源）
 PYPI_CHECK_URL = "https://pypi.org/pypi/qwenpaw/json"
 # 应用框架更新检查（GitHub Releases）。
@@ -131,6 +132,15 @@ def version_key(v: str):
 # 预发布标记常紧贴数字（2.2.1b2、2.2.1rc1），不带号的 1.0a / 2.2.1rc 也要能命中。
 _PRE_RELEASE_RE = re.compile(
     r"(?i)(?<![A-Za-z])(?:alpha|beta|preview|a|b|c|rc|pre|dev)(?:\d|$)")
+
+# URL userinfo（user:pass@）打码：把含代理凭据的命令写日志/展示前脱敏
+# （10-26 安全审计项 #2：此前 upgrade.log 里的 pip 命令带明文 http://user:pass@host）
+_URL_USERINFO_RE = re.compile(r"(?<=//)[^/@\s]+@")
+
+
+def mask_url_creds(s: str) -> str:
+    """把 URL 中的 userinfo（如 http://user:pass@host 的 user:pass@）替换为 ***@"""
+    return _URL_USERINFO_RE.sub("***@", str(s))
 
 if hasattr(socketserver, "UnixStreamServer"):
     BaseUnixServer = socketserver.UnixStreamServer
@@ -750,20 +760,31 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         # exec：bash 以内核进程自替换，pid 文件记录的就是内核 pid，
         # 停止时 kill 该 pid 即直接命中内核（对齐 com.dustinky.qwenpaw 的行为），
         # 避免"杀掉 bash 留下内核孤儿/内核优雅关闭期间误判"的歧义
+        # ⚠️ 所有插值必须 shlex.quote：AUTH_USERNAME/PASSWORD 来自使用者经
+        # 控制台「环境变量」设置的任意字符串，裸拼进 bash -c 会被当 shell
+        # 语法解释（值里带 ; $() 反引号即可执行任意命令，10-26 安全审计项 #3）。
         exports = [
-            f"export HOME={env_home}",
-            f"export QWENPAW_WORKING_DIR={working_dir}",
+            f"export HOME={shlex.quote(env_home)}",
+            f"export QWENPAW_WORKING_DIR={shlex.quote(working_dir)}",
+            # 内核 2.3.0 起 import qwenpaw 时就要在「passwd home/.qwenpaw/
+            # dependency-environments」建依赖协调目录；fnOS 应用账号的
+            # /home/<user> 不存在或不可写 → import 即 RuntimeError 拒绝启动
+            # （2026-11-12 实测：升级 2.3.0 后整应用起不来，错误码
+            # DEPENDENCY_STATE_ROOT_UNAVAILABLE；HOME 救不了，passwd home 优先）。
+            # 显式指到内核自己的工作目录（服务用户必可写，绝对路径满足内核校验）。
+            f"export QWENPAW_DEPENDENCY_STATE_DIR={shlex.quote(os.path.join(working_dir, 'dependency-environments'))}",
         ]
         if auth_enabled:
-            exports.append(f"export QWENPAW_AUTH_ENABLED={auth_enabled}")
+            exports.append(f"export QWENPAW_AUTH_ENABLED={shlex.quote(auth_enabled)}")
             if auth_user:
-                exports.append(f"export QWENPAW_AUTH_USERNAME={auth_user}")
+                exports.append(f"export QWENPAW_AUTH_USERNAME={shlex.quote(auth_user)}")
             if auth_pass:
-                exports.append(f"export QWENPAW_AUTH_PASSWORD={auth_pass}")
-        exports.append(f"export PATH={node_path}")
+                exports.append(f"export QWENPAW_AUTH_PASSWORD={shlex.quote(auth_pass)}")
+        exports.append(f"export PATH={shlex.quote(node_path)}")
         cmd = (
             " && ".join(exports)
-            + f" && exec {venv_python} -m qwenpaw app --host 0.0.0.0 --port {port}"
+            + f" && exec {shlex.quote(venv_python)} -m qwenpaw app"
+              f" --host 0.0.0.0 --port {shlex.quote(str(port))}"
         )
         proxy_env = self.proxy_env()
         if proxy_env:
@@ -1240,7 +1261,8 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
         pip_cmd = ("PYTHONUNBUFFERED=1 %s\"%s\" -m pip install --upgrade --no-input %s %s"
                    % (pip_env, venv_python, req, self._pip_mirror_args()))
         s += 'echo "[1/3] 正在升级 QwenPaw 内核（服务保持运行）..." >> "' + up_log + '"\n'
-        s += 'echo "$ ' + pip_cmd.replace('"', '') + '" >> "' + up_log + '"\n'
+        # 写日志前打码 URL 里的代理凭据（真实执行的 pip_cmd 不变，仅展示脱敏）
+        s += 'echo "$ ' + mask_url_creds(pip_cmd).replace('"', '') + '" >> "' + up_log + '"\n'
         s += pip_cmd + ' >> "' + up_log + '" 2>&1\n'
         s += 'rc=$?\n'
         s += 'echo "" >> "' + up_log + '"\n'
@@ -1413,7 +1435,9 @@ class ThreadingUnixHTTPServer(socketserver.ThreadingMixIn, BaseUnixServer):
             with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script)
             try:
-                os.chmod(script_path, 0o755)
+                # 0o600 而非 0o755：脚本内嵌 start_cmd，含代理 URL 与内核认证密码等
+                # 敏感值，只允许应用用户/根读取（10-26 安全审计项 #2）
+                os.chmod(script_path, 0o600)
             except OSError:
                 pass
 
@@ -2186,6 +2210,17 @@ class FnGatewayHandler(BaseHTTPRequestHandler):
                 _bn_hit = True
                 break
         if not _bn_hit:
+            # v2.3.0 起上游换了实现（react-router 的 n6/Po 已不存在）：
+            #   function lP(e){const t="/console".replace(/^\/+|\/+$/g,"");return t?`/${t}`:""}
+            #   const Ri=lP();  function or(e){return Ri&&(e===Ri||e.startsWith(`${Ri}/`))?Ri:void 0}
+            # 直接替换「字面量表达式」本身：与 minified 函数名/常量名完全无关，
+            # 全量产物实测仅此 1 处，上游再改标识符也不会失效（2026-11-12 实锤白屏）。
+            if QWENPAW_BASENAME_V23_ANCHOR in js:
+                js = js.replace(QWENPAW_BASENAME_V23_ANCHOR,
+                                QWENPAW_BASENAME_V23_PATCH, 1)
+                _bn_hit = True
+                logger.info("QwenPaw basename 补丁：命中 2.3.0 新形态（字面量表达式）")
+        if not _bn_hit:
             # 上游换构建导致 minified 标识符变化时，用泛化正则匹配（函数名/形参/
             # 前缀字面量/常量名全通配），上游任意一版均可命中。
             m = QWENPAW_BASENAME_RE.search(js)
@@ -2383,6 +2418,13 @@ QWENPAW_BASENAME_PATCH_V2 = (
     'if(b&&%s.indexOf(b)===0)return b;'
     'return/^\\/console(?:\\/|$)/.test(%s)?%s:void 0}'
 )
+# v2.3.0（2026-11-12 实锤）：上游不再用 n6/Po 推断，改成先算常量再比较：
+#   function lP(e){const t="/console".replace(/^\/+|\/+$/g,"");return t?`/${t}`:""}
+#   const Ri=lP();  function or(e){return Ri&&(e===Ri||e.startsWith(`${Ri}/`))?Ri:void 0}
+# 补丁打在「"/console".replace(...)」这个字面量表达式上（全产物仅 1 处）：
+# 有注入值就用注入值，没有就退回 /console —— 与 minified 标识符无关，最抗上游改版。
+QWENPAW_BASENAME_V23_ANCHOR = '"/console".replace(/^\\/+|\\/+$/g,"")'
+QWENPAW_BASENAME_V23_PATCH = '(window.__QWENPAW_BASENAME__||"/console").replace(/^\\/+|\\/+$/g,"")'
 # 兜底正则：上游重新构建后 minified 标识符会变，必须全部泛化，做到"上游任意一版都能命中"，
 # 不能他们每改一版构建我们就追一次锚点。实测产物形态（两个版本同构，仅标识符不同）：
 #   v2.1.0: function n6(i){return/^\/console(?:\/|$)/.test(i)?c8e:void 0}

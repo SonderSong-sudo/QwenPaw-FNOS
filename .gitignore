@@ -2,3 +2,4 @@ qwenpaw_*.fpk
 fnpack.exe
 __pycache__
 *.bak
+tmp/
